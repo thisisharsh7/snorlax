@@ -1,0 +1,34 @@
+{
+  "version": "1",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "1",
+      "when": 1735164000000,
+      "tag": "0000_initial_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "1",
+      "when": 1735164001000,
+      "tag": "0001_github_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "1",
+      "when": 1735164002000,
+      "tag": "0002_settings_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "1",
+      "when": 1735164003000,
+      "tag": "0003_add_last_synced_at",
+      "breakpoints": true
+    }
+  ]
+}

@@ -85,7 +85,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               API Settings
             </h2>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
-              Configure your API keys for the platform
+              All keys are optional. Configure only the features you need.
             </p>
           </div>
           <button
@@ -100,7 +100,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {/* AI Provider Selection */}
           <div>
             <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 block">
-              AI Provider for Q&A
+              AI Provider for Code Q&A <span className="text-xs font-normal text-gray-500">(Optional)</span>
             </label>
             <select
               value={aiProvider}
@@ -112,7 +112,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <option value="openrouter">OpenRouter (Multiple Models)</option>
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Choose which AI provider to use for answering questions
+              Only needed for the "Code Q&A" feature. Not required for browsing issues and PRs.
             </p>
           </div>
 
@@ -216,14 +216,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                GitHub Personal Access Token
+                GitHub Fine-Grained Token <span className="text-xs font-normal text-gray-500">(Optional)</span>
               </label>
               <a
-                href="https://github.com/settings/tokens/new?description=Code%20Q%26A%20Platform&scopes="
+                href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                title="Create a GitHub token"
+                title="Create a fine-grained token"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -234,18 +234,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               type="password"
               value={githubToken}
               onChange={(e) => setGithubToken(e.target.value)}
-              placeholder="ghp_..."
+              placeholder="github_pat_..."
               className="w-full p-3 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-sm"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Optional. Increases GitHub API rate limit from 60 to 5,000 requests/hour. No permissions needed for public repos.{' '}
+              Only needed for syncing issues and PRs. Use fine-grained token with "Issues" and "Pull requests" read-only permissions.{' '}
               <a
-                href="https://github.com/settings/tokens/new?description=Code%20Q%26A%20Platform&scopes="
+                href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 hover:underline"
               >
-                Create token
+                Create fine-grained token
               </a>
             </p>
           </div>

@@ -56,6 +56,16 @@ Verify the database is running:
 docker ps
 ```
 
+Run database migrations to create the schema:
+
+```bash
+cd backend
+source venv/bin/activate  # Create venv first if needed
+python scripts/run_migrations.py migrate
+```
+
+For detailed migration documentation, see [MIGRATIONS.md](MIGRATIONS.md).
+
 ### 2. Backend Setup
 
 Navigate to the backend directory and set up the Python environment:
@@ -138,11 +148,23 @@ Click the "Sync from GitHub" button to import new issues and PRs or update exist
 code-qa/
 ├── .env                    # System configuration
 ├── docker-compose.yml      # PostgreSQL setup
-├── init.sql               # Database initialization
+├── MIGRATIONS.md          # Migration system documentation
 ├── backend/
 │   ├── main.py            # FastAPI application
 │   ├── flows.py           # CocoIndex flow definition
 │   ├── requirements.txt   # Python dependencies
+│   ├── database/          # Database management
+│   │   ├── migrate.py     # Migration system
+│   │   └── migrations/    # SQL migration files
+│   │       ├── meta/
+│   │       │   └── _journal.json  # Migration tracking
+│   │       ├── 0000_initial_schema.sql
+│   │       ├── 0001_github_tables.sql
+│   │       ├── 0002_settings_table.sql
+│   │       └── 0003_add_last_synced_at.sql
+│   ├── scripts/
+│   │   ├── run_migrations.py  # Migration runner
+│   │   └── clean_db.py        # Database cleanup (dev only)
 │   └── services/
 │       ├── github_service.py  # GitHub API integration
 │       ├── repo_cloner.py     # Repository cloning
@@ -202,6 +224,31 @@ View tables:
 ```sql
 \dt
 ```
+
+### Database Migrations
+
+Check migration status:
+```bash
+cd backend
+python scripts/run_migrations.py status
+```
+
+Apply pending migrations:
+```bash
+python scripts/run_migrations.py migrate
+```
+
+Create a new migration:
+```bash
+python scripts/run_migrations.py create add_new_feature
+```
+
+Clean database (development only):
+```bash
+python scripts/clean_db.py
+```
+
+For detailed information, see [MIGRATIONS.md](MIGRATIONS.md).
 
 ### Logs
 

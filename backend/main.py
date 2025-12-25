@@ -2,7 +2,7 @@
 FastAPI backend for Code Q&A platform.
 """
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 import uuid
@@ -12,6 +12,9 @@ import psycopg2
 from typing import List, Optional
 from datetime import datetime
 import re
+import hmac
+import hashlib
+import json
 
 from services.repo_cloner import RepoCloner
 from services.query_service import QueryService
@@ -111,6 +114,7 @@ class Repository(BaseModel):
     repo_name: str
     indexed_at: str
     status: str
+    last_synced_at: Optional[str] = None
 
 
 class SettingsRequest(BaseModel):
@@ -331,6 +335,71 @@ async def index_repo(
         )
 
 
+@app.post("/api/reindex/{project_id}")
+async def reindex_repository(project_id: str, background_tasks: BackgroundTasks):
+    """
+    Re-index an existing repository to update embeddings when code changes.
+
+    Args:
+        project_id: Project identifier
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Status message
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check if repository exists
+        cur.execute(
+            "SELECT repo_url, status FROM repositories WHERE project_id = %s",
+            (project_id,)
+        )
+        result = cur.fetchone()
+
+        if not result:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        repo_url, status = result
+
+        # Don't allow re-indexing if already indexing
+        if status == "indexing":
+            cur.close()
+            conn.close()
+            return {
+                "status": "already_indexing",
+                "message": "Repository is currently being indexed. Please wait for it to complete."
+            }
+
+        # Update status to indexing
+        cur.execute(
+            "UPDATE repositories SET status = %s WHERE project_id = %s",
+            ("indexing", project_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Start re-indexing in background
+        background_tasks.add_task(index_repository, project_id, repo_url)
+
+        return {
+            "status": "success",
+            "message": "Re-indexing started. Code embeddings will be updated."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start re-indexing: {str(e)}"
+        )
+
+
 @app.get("/api/repositories", response_model=List[Repository])
 async def list_repositories():
     """
@@ -343,7 +412,7 @@ async def list_repositories():
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
-            """SELECT repo_url, project_id, repo_name, indexed_at, status
+            """SELECT repo_url, project_id, repo_name, indexed_at, status, last_synced_at
                FROM repositories
                ORDER BY indexed_at DESC"""
         )
@@ -357,7 +426,8 @@ async def list_repositories():
                 project_id=row[1],
                 repo_name=row[2],
                 indexed_at=str(row[3]),
-                status=row[4]
+                status=row[4],
+                last_synced_at=str(row[5]) if row[5] else None
             )
             for row in results
         ]
@@ -492,6 +562,17 @@ async def import_github_issues(project_id: str, limit: Optional[int] = None):
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["message"])
 
+        # Update last_synced_at timestamp
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+            (project_id,)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
         return result
 
     except HTTPException:
@@ -537,6 +618,17 @@ async def import_github_prs(project_id: str, limit: Optional[int] = None):
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["message"])
+
+        # Update last_synced_at timestamp
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+            (project_id,)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
 
         return result
 
@@ -593,6 +685,208 @@ async def get_github_prs(project_id: str, state: Optional[str] = None):
             status_code=500,
             detail=f"Failed to get PRs: {str(e)}"
         )
+
+
+
+
+# ============================================================================
+# WEBHOOK CODE (COMMENTED OUT FOR FUTURE USE)
+# ============================================================================
+# Uncomment this section if you want to enable real-time webhook sync
+# See WEBHOOK_SETUP.md for configuration instructions
+# ============================================================================
+
+# @app.post("/api/github/webhook")
+# async def github_webhook(
+#     request: Request,
+#     x_github_event: Optional[str] = Header(None),
+#     x_hub_signature_256: Optional[str] = Header(None)
+# ):
+#     """
+#     Handle GitHub webhook events for real-time synchronization.
+#
+#     Supported events:
+#     - issues (opened, closed, edited, labeled)
+#     - pull_request (opened, closed, merged, edited)
+#     - issue_comment (created, edited)
+#
+#     Returns:
+#         Success message
+#     """
+#     try:
+#         # Get the raw body
+#         body = await request.body()
+#
+#         # Verify webhook signature (if webhook secret is configured)
+#         conn = get_db_connection()
+#         cur = conn.cursor()
+#         cur.execute("SELECT value FROM settings WHERE key = 'github_webhook_secret'")
+#         secret_result = cur.fetchone()
+#
+#         if secret_result and secret_result[0]:
+#             webhook_secret = secret_result[0]
+#             if not verify_github_signature(body, x_hub_signature_256, webhook_secret):
+#                 raise HTTPException(status_code=401, detail="Invalid webhook signature")
+#
+#         # Parse the JSON payload
+#         payload = json.loads(body)
+#
+#         # Get repository info
+#         repo_full_name = payload.get('repository', {}).get('full_name')
+#         if not repo_full_name:
+#             raise HTTPException(status_code=400, detail="Missing repository information")
+#
+#         # Find the project_id for this repository
+#         cur.execute(
+#             "SELECT project_id FROM repositories WHERE repo_name = %s",
+#             (repo_full_name,)
+#         )
+#         repo_result = cur.fetchone()
+#
+#         if not repo_result:
+#             return {
+#                 "status": "skipped",
+#                 "message": f"Repository {repo_full_name} not indexed in our system"
+#             }
+#
+#         project_id = repo_result[0]
+#
+#         # Handle different event types
+#         if x_github_event == "issues":
+#             handle_issue_event(payload, project_id, cur, conn)
+#         elif x_github_event == "pull_request":
+#             handle_pr_event(payload, project_id, cur, conn)
+#         elif x_github_event == "issue_comment":
+#             handle_comment_event(payload, project_id, cur, conn)
+#         elif x_github_event == "ping":
+#             # Ping event when webhook is first set up
+#             return {"status": "success", "message": "Webhook ping received"}
+#         else:
+#             return {
+#                 "status": "skipped",
+#                 "message": f"Event type '{x_github_event}' not handled"
+#             }
+#
+#         cur.close()
+#         conn.close()
+#
+#         return {
+#             "status": "success",
+#             "message": f"Processed {x_github_event} event for {repo_full_name}"
+#         }
+#
+#     except Exception as e:
+#         print(f"Webhook error: {str(e)}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Webhook processing failed: {str(e)}"
+#         )
+#
+#
+# def verify_github_signature(payload_body: bytes, signature_header: str, secret: str) -> bool:
+#     """Verify that the webhook request came from GitHub."""
+#     if not signature_header:
+#         return False
+#
+#     hash_object = hmac.new(secret.encode('utf-8'), msg=payload_body, digestmod=hashlib.sha256)
+#     expected_signature = "sha256=" + hash_object.hexdigest()
+#
+#     return hmac.compare_digest(expected_signature, signature_header)
+#
+#
+# def handle_issue_event(payload: dict, project_id: str, cur, conn):
+#     """Handle issue events (opened, closed, edited, etc.)."""
+#     action = payload.get('action')
+#     issue = payload.get('issue', {})
+#
+#     issue_number = issue.get('number')
+#     title = issue.get('title')
+#     body = issue.get('body') or ''
+#     state = issue.get('state')
+#     html_url = issue.get('html_url')
+#     author = issue.get('user', {}).get('login')
+#     created_at = issue.get('created_at')
+#     updated_at = issue.get('updated_at')
+#     labels = [label['name'] for label in issue.get('labels', [])]
+#
+#     # Upsert the issue
+#     cur.execute("""
+#         INSERT INTO github_issues (
+#             project_id, number, title, body, state, html_url,
+#             author, created_at, updated_at, labels
+#         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#         ON CONFLICT (project_id, number)
+#         DO UPDATE SET
+#             title = EXCLUDED.title,
+#             body = EXCLUDED.body,
+#             state = EXCLUDED.state,
+#             updated_at = EXCLUDED.updated_at,
+#             labels = EXCLUDED.labels
+#     """, (
+#         project_id, issue_number, title, body, state, html_url,
+#         author, created_at, updated_at, labels
+#     ))
+#
+#     conn.commit()
+#     print(f"✅ Synced issue #{issue_number} - {action}")
+#
+#
+# def handle_pr_event(payload: dict, project_id: str, cur, conn):
+#     """Handle pull request events (opened, closed, merged, etc.)."""
+#     action = payload.get('action')
+#     pr = payload.get('pull_request', {})
+#
+#     pr_number = pr.get('number')
+#     title = pr.get('title')
+#     body = pr.get('body') or ''
+#     state = pr.get('state')
+#     html_url = pr.get('html_url')
+#     author = pr.get('user', {}).get('login')
+#     created_at = pr.get('created_at')
+#     updated_at = pr.get('updated_at')
+#     merged_at = pr.get('merged_at')
+#     labels = [label['name'] for label in pr.get('labels', [])]
+#
+#     # Upsert the PR
+#     cur.execute("""
+#         INSERT INTO github_pull_requests (
+#             project_id, number, title, body, state, html_url,
+#             author, created_at, updated_at, merged_at, labels
+#         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#         ON CONFLICT (project_id, number)
+#         DO UPDATE SET
+#             title = EXCLUDED.title,
+#             body = EXCLUDED.body,
+#             state = EXCLUDED.state,
+#             updated_at = EXCLUDED.updated_at,
+#             merged_at = EXCLUDED.merged_at,
+#             labels = EXCLUDED.labels
+#     """, (
+#         project_id, pr_number, title, body, state, html_url,
+#         author, created_at, updated_at, merged_at, labels
+#     ))
+#
+#     conn.commit()
+#     print(f"✅ Synced PR #{pr_number} - {action}")
+#
+#
+# def handle_comment_event(payload: dict, project_id: str, cur, conn):
+#     """Handle comment events on issues and PRs."""
+#     action = payload.get('action')
+#     comment = payload.get('comment', {})
+#     issue = payload.get('issue', {})
+#
+#     # For now, just log it - we can add comment storage later
+#     comment_id = comment.get('id')
+#     author = comment.get('user', {}).get('login')
+#     issue_number = issue.get('number')
+#
+#     print(f"✅ Comment {action} on issue #{issue_number} by {author}")
+#     # TODO: Store comments in database if needed
+
+# ============================================================================
+# END OF WEBHOOK CODE
+# ============================================================================
 
 
 @app.get("/api/settings", response_model=SettingsResponse)
