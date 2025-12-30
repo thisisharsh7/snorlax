@@ -139,31 +139,70 @@ Please provide a detailed answer with references to the specific files and code 
 
         return message.content[0].text
 
-    def query(self, project_id: str, question: str) -> Dict:
+    def query(self, project_id: str, question: str, mode: str = None) -> Dict:
         """
-        Complete query pipeline: search + LLM answer.
+        Complete query pipeline: search + optional LLM answer.
 
         Args:
             project_id: Project identifier
             question: User's question
+            mode: 'search' for search-only, 'ai' for full Q&A, None for auto-detect
 
         Returns:
-            Dictionary with answer and sources
+            Dictionary with answer, sources, mode, and has_llm_answer
         """
-        # 1. Search for relevant code
+        # 1. Search for relevant code (always works without API key)
         search_results = self.search_code(project_id, question, limit=10)
 
         if not search_results:
             return {
-                "answer": "No relevant code found in the repository.",
-                "sources": []
+                "answer": None,
+                "sources": [],
+                "mode": "search_only",
+                "has_llm_answer": False
             }
 
-        # 2. Get LLM answer with context
-        answer = self.ask_llm(question, search_results)
+        # If user explicitly requested search mode, skip LLM
+        if mode == 'search':
+            return {
+                "answer": None,
+                "sources": search_results[:5],
+                "mode": "search_only",
+                "has_llm_answer": False
+            }
 
-        # 3. Return answer + top sources
-        return {
-            "answer": answer,
-            "sources": search_results[:5]  # Return top 5 sources
-        }
+        # 2. Check if API key is configured
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+
+        has_api_key = bool(anthropic_key or openai_key or openrouter_key)
+
+        # If user requested AI mode or has API key, try LLM
+        if mode == 'ai' or has_api_key:
+            # Try to generate LLM answer
+            try:
+                answer = self.ask_llm(question, search_results)
+                return {
+                    "answer": answer,
+                    "sources": search_results[:5],  # Return top 5 sources
+                    "mode": "full",
+                    "has_llm_answer": True
+                }
+            except Exception as e:
+                # If LLM fails, still return search results
+                return {
+                    "answer": None,
+                    "sources": search_results[:5],
+                    "mode": "search_only",
+                    "has_llm_answer": False,
+                    "llm_error": str(e)
+                }
+        else:
+            # Return search results only
+            return {
+                "answer": None,
+                "sources": search_results[:5],
+                "mode": "search_only",
+                "has_llm_answer": False
+            }

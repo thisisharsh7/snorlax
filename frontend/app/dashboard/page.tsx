@@ -225,16 +225,16 @@ export default function Dashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => hasAIKey && selectedRepo.status === 'indexed' && setActiveView('chat')}
-                  disabled={!hasAIKey || selectedRepo.status !== 'indexed'}
+                  onClick={() => selectedRepo.status === 'indexed' && setActiveView('chat')}
+                  disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                     activeView === 'chat'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : hasAIKey && selectedRepo.status === 'indexed'
+                      : selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                       : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
                   }`}
-                  title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
+                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
                   Code Q&A
                 </button>

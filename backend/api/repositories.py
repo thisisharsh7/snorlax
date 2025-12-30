@@ -536,12 +536,15 @@ async def query_project(project_id: str, request: QueryRequest):
                 detail=f"Repository is not ready yet. Current status: {result[0]}"
             )
 
-        # Execute query
-        result = query_service.query(project_id, request.question)
+        # Execute query with mode
+        result = query_service.query(project_id, request.question, mode=request.mode)
 
         return QueryResponse(
             answer=result["answer"],
-            sources=[Source(**source) for source in result["sources"]]
+            sources=[Source(**source) for source in result["sources"]],
+            mode=result.get("mode", "full"),
+            has_llm_answer=result.get("has_llm_answer", True),
+            llm_error=result.get("llm_error")
         )
 
     except HTTPException:
