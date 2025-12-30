@@ -120,7 +120,3 @@ Environment variables are in `backend/.env` (created automatically by `make setu
 ## Contributing
 
 This is a personal/educational project. Feel free to fork and modify for your own use!
-
-## License
-
-MIT License - see LICENSE file for details
