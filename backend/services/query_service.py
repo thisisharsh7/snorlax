@@ -21,10 +21,7 @@ class QueryService:
     """
 
     def __init__(self):
-        """Initialize query service with LLM and database connections."""
-        self.claude_client = anthropic.Anthropic(
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
+        """Initialize query service with database connection."""
         self.db_pool = ConnectionPool(os.getenv("APP_DATABASE_URL"))
 
     def search_code(
@@ -92,6 +89,14 @@ class QueryService:
         Returns:
             AI-generated answer
         """
+        # Get API key from environment (set by settings API)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("Anthropic API key not configured. Please set it in Settings.")
+
+        # Create client with current API key
+        claude_client = anthropic.Anthropic(api_key=api_key)
+
         # Build context from search results
         context_text = ""
         for i, result in enumerate(code_context, 1):
@@ -122,7 +127,7 @@ Guidelines:
 Please provide a detailed answer with references to the specific files and code shown above."""
 
         # Ask Claude
-        message = self.claude_client.messages.create(
+        message = claude_client.messages.create(
             model="claude-sonnet-4-5-20250929",
             max_tokens=2000,
             system=system_prompt,

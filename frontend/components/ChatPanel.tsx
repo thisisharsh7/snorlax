@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import ReactMarkdown from 'react-markdown'
 
 interface Source {
   filename: string
@@ -125,7 +126,7 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
       </div>
 
       {/* Chat Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6">
         {/* Query Input */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg p-4 sticky top-0 z-10">
           <div className="flex gap-3">
@@ -193,8 +194,31 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
                 <span className="text-2xl mr-2">💡</span>
                 Answer
               </h2>
-              <div className="prose prose-blue max-w-none whitespace-pre-wrap text-gray-800 dark:text-gray-200">
-                {answer}
+              <div className="prose prose-blue dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
+                <ReactMarkdown
+                  components={{
+                    code({ node, inline, className, children, ...props }: any) {
+                      const match = /language-(\w+)/.exec(className || '')
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{ margin: '1rem 0', borderRadius: '0.5rem' }}
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      )
+                    }
+                  }}
+                >
+                  {answer}
+                </ReactMarkdown>
               </div>
             </div>
 
@@ -209,28 +233,28 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
                   {sources.map((source, i) => (
                     <div key={i} className="border-2 border-gray-100 dark:border-gray-800 rounded-lg p-4 hover:border-blue-200 dark:hover:border-blue-700 transition-colors">
                       <div className="flex justify-between items-start mb-3">
-                        <div className="flex-1">
-                          <span className="font-mono text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 break-all">
                             {source.filename}
                           </span>
-                          <span className="text-gray-500 dark:text-gray-400 text-xs ml-3">
+                          <span className="text-gray-500 dark:text-gray-400 text-xs ml-3 whitespace-nowrap">
                             Lines {source.start_line}-{source.end_line}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs px-2 py-1 rounded-full">
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs px-2 py-1 rounded-full whitespace-nowrap">
                             {Math.round(source.similarity * 100)}% match
                           </span>
                           <button
                             onClick={() => copyCode(source.code, i)}
-                            className="px-2 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-xs transition-colors text-gray-800 dark:text-gray-200"
+                            className="px-2 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-xs transition-colors text-gray-800 dark:text-gray-200 whitespace-nowrap"
                             title="Copy code"
                           >
                             {copiedIndex === i ? '✓ Copied' : '📋 Copy'}
                           </button>
                         </div>
                       </div>
-                      <div className="relative">
+                      <div className="relative overflow-x-auto">
                         <SyntaxHighlighter
                           language={source.language}
                           style={vscDarkPlus}
@@ -241,6 +265,7 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
                           }}
                           showLineNumbers
                           startingLineNumber={source.start_line}
+                          wrapLongLines={false}
                         >
                           {source.code}
                         </SyntaxHighlighter>
