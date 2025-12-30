@@ -29,6 +29,20 @@
       "when": 1735164003000,
       "tag": "0003_add_last_synced_at",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "1",
+      "when": 1735495200000,
+      "tag": "0004_issue_embeddings_and_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "1",
+      "when": 1735495201000,
+      "tag": "0005_add_cascade_deletes",
+      "breakpoints": true
     }
   ]
 }

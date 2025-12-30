@@ -5,7 +5,7 @@ Service for GitHub API integration - fetching issues, PRs, and comments.
 from github import Github, GithubException
 import os
 from typing import List, Dict, Optional
-import psycopg2
+import psycopg
 from datetime import datetime
 
 
@@ -29,7 +29,7 @@ class GitHubService:
 
     def get_db_connection(self):
         """Get database connection."""
-        return psycopg2.connect(self.db_url)
+        return psycopg.connect(self.db_url)
 
     def extract_repo_name_from_url(self, github_url: str) -> str:
         """

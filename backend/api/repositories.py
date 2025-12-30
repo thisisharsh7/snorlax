@@ -1,0 +1,347 @@
+"""Repository management API endpoints."""
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from typing import List
+import uuid
+import os
+
+from models.repository import IndexRequest, IndexResponse, StatusResponse, Repository
+from models.query import QueryRequest, QueryResponse, Source
+from utils.database import get_db_connection, extract_repo_name, update_repository_status
+from services.repo_cloner import RepoCloner
+from services.query_service import QueryService
+from flows import create_flow_for_project
+
+router = APIRouter(prefix="/api", tags=["repositories"])
+
+# Initialize services
+repo_cloner = RepoCloner(data_dir=os.getenv("DATA_DIR", "./data"))
+query_service = QueryService()
+
+
+def index_repository(project_id: str, github_url: str):
+    """
+    Background task to clone and index a repository.
+
+    Args:
+        project_id: Unique project identifier
+        github_url: GitHub repository URL
+    """
+    try:
+        print(f"\n[{project_id}] Starting indexing process...")
+
+        # Update status to indexing
+        update_repository_status(project_id, "indexing")
+
+        # Step 1: Clone repository
+        print(f"[{project_id}] Cloning repository from {github_url}")
+        repo_path = repo_cloner.clone_repo(github_url, project_id)
+        repo_info = repo_cloner.get_repo_info(repo_path)
+        print(f"[{project_id}] Cloned {repo_info['file_count']} files "
+              f"({repo_info['total_size_mb']} MB)")
+
+        # Step 2: Create CocoIndex flow
+        print(f"[{project_id}] Creating CocoIndex flow...")
+        flow = create_flow_for_project(project_id, repo_path)
+
+        # Step 3: Setup flow (creates tables and indexes)
+        print(f"[{project_id}] Setting up flow (creating tables)...")
+        flow.setup()
+
+        # Step 4: Run indexing
+        print(f"[{project_id}] Processing files and generating embeddings...")
+        flow.update()
+
+        # Step 5: Mark as complete
+        print(f"[{project_id}] Indexing complete!")
+        update_repository_status(project_id, "indexed")
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[{project_id}] Error: {error_msg}")
+        update_repository_status(project_id, "failed")
+
+
+@router.post("/index", response_model=IndexResponse)
+async def index_repo(
+    request: IndexRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Start indexing a GitHub repository.
+    If the repository is already indexed, returns the existing project_id.
+
+    Args:
+        request: IndexRequest with github_url
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        IndexResponse with project_id and status
+    """
+    repo_url = str(request.github_url)
+    repo_name = extract_repo_name(repo_url)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check if repository already exists
+        cur.execute(
+            "SELECT project_id, status FROM repositories WHERE repo_url = %s",
+            (repo_url,)
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            project_id, status = existing
+            cur.close()
+            conn.close()
+
+            # Return existing project
+            if status == "indexed":
+                return IndexResponse(
+                    project_id=project_id,
+                    status="indexed",
+                    message=f"Repository '{repo_name}' is already indexed."
+                )
+            elif status == "indexing":
+                return IndexResponse(
+                    project_id=project_id,
+                    status="indexing",
+                    message=f"Repository '{repo_name}' is currently being indexed."
+                )
+            else:  # failed - allow re-indexing
+                # Update status and restart indexing
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE repositories SET status = %s WHERE project_id = %s",
+                    ("indexing", project_id)
+                )
+                conn.commit()
+                cur.close()
+                conn.close()
+                background_tasks.add_task(index_repository, project_id, repo_url)
+                return IndexResponse(
+                    project_id=project_id,
+                    status="indexing",
+                    message=f"Re-indexing repository '{repo_name}'."
+                )
+
+        # Create new repository entry
+        project_id = str(uuid.uuid4())
+        cur.execute(
+            """INSERT INTO repositories (repo_url, project_id, repo_name, status)
+               VALUES (%s, %s, %s, %s)""",
+            (repo_url, project_id, repo_name, "indexing")
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Start indexing in background
+        background_tasks.add_task(index_repository, project_id, repo_url)
+
+        return IndexResponse(
+            project_id=project_id,
+            status="indexing",
+            message=f"Indexing '{repo_name}' started. This may take a few minutes."
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start indexing: {str(e)}"
+        )
+
+
+@router.post("/reindex/{project_id}")
+async def reindex_repository(project_id: str, background_tasks: BackgroundTasks):
+    """
+    Re-index an existing repository to update embeddings when code changes.
+
+    Args:
+        project_id: Project identifier
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Status message
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check if repository exists
+        cur.execute(
+            "SELECT repo_url, status FROM repositories WHERE project_id = %s",
+            (project_id,)
+        )
+        result = cur.fetchone()
+
+        if not result:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        repo_url, status = result
+
+        # Don't allow re-indexing if already indexing
+        if status == "indexing":
+            cur.close()
+            conn.close()
+            return {
+                "status": "already_indexing",
+                "message": "Repository is currently being indexed. Please wait for it to complete."
+            }
+
+        # Update status to indexing
+        cur.execute(
+            "UPDATE repositories SET status = %s WHERE project_id = %s",
+            ("indexing", project_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Start re-indexing in background
+        background_tasks.add_task(index_repository, project_id, repo_url)
+
+        return {
+            "status": "success",
+            "message": "Re-indexing started. Code embeddings will be updated."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start re-indexing: {str(e)}"
+        )
+
+
+@router.get("/repositories", response_model=List[Repository])
+async def list_repositories():
+    """
+    List all indexed repositories.
+
+    Returns:
+        List of Repository objects
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT repo_url, project_id, repo_name, indexed_at, status, last_synced_at
+               FROM repositories
+               ORDER BY indexed_at DESC"""
+        )
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return [
+            Repository(
+                repo_url=row[0],
+                project_id=row[1],
+                repo_name=row[2],
+                indexed_at=str(row[3]),
+                status=row[4],
+                last_synced_at=str(row[5]) if row[5] else None
+            )
+            for row in results
+        ]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list repositories: {str(e)}"
+        )
+
+
+@router.get("/status/{project_id}", response_model=StatusResponse)
+async def get_status(project_id: str):
+    """
+    Get indexing status of a repository.
+
+    Args:
+        project_id: Project identifier
+
+    Returns:
+        StatusResponse with current status
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status, indexed_at FROM repositories WHERE project_id = %s",
+            (project_id,)
+        )
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        return StatusResponse(
+            status=result[0],
+            error_message=None,
+            indexed_at=str(result[1]) if result[1] else None
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get status: {str(e)}"
+        )
+
+
+@router.post("/query/{project_id}", response_model=QueryResponse)
+async def query_project(project_id: str, request: QueryRequest):
+    """
+    Ask a question about the indexed code.
+
+    Args:
+        project_id: Project identifier
+        request: QueryRequest with question
+
+    Returns:
+        QueryResponse with answer and sources
+    """
+    # Check if repository exists and is indexed
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status FROM repositories WHERE project_id = %s",
+            (project_id,)
+        )
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        if result[0] != "indexed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Repository is not ready yet. Current status: {result[0]}"
+            )
+
+        # Execute query
+        result = query_service.query(project_id, request.question)
+
+        return QueryResponse(
+            answer=result["answer"],
+            sources=[Source(**source) for source in result["sources"]]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Query failed: {str(e)}"
+        )
