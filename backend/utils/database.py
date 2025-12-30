@@ -20,14 +20,31 @@ def extract_repo_name(github_url: str) -> str:
     return "unknown"
 
 
-def update_repository_status(project_id: str, status: str):
-    """Update repository status in database."""
+def update_repository_status(project_id: str, status: str, error_message: str = None):
+    """Update repository status in database with optional error message."""
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE repositories SET status = %s, indexed_at = NOW() WHERE project_id = %s",
-        (status, project_id)
-    )
+
+    if error_message:
+        cur.execute(
+            """UPDATE repositories
+               SET status = %s,
+                   indexed_at = NOW(),
+                   error_message = %s,
+                   last_error_at = NOW()
+               WHERE project_id = %s""",
+            (status, error_message, project_id)
+        )
+    else:
+        cur.execute(
+            """UPDATE repositories
+               SET status = %s,
+                   indexed_at = NOW(),
+                   error_message = NULL
+               WHERE project_id = %s""",
+            (status, project_id)
+        )
+
     conn.commit()
     cur.close()
     conn.close()

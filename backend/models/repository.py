@@ -27,3 +27,5 @@ class Repository(BaseModel):
     indexed_at: str
     status: str
     last_synced_at: Optional[str] = None
+    error_message: Optional[str] = None
+    last_error_at: Optional[str] = None

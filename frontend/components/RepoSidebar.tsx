@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Github } from 'lucide-react'
+import { Github, Trash2 } from 'lucide-react'
+import DeleteRepoModal from './DeleteRepoModal'
 
 interface Repository {
   repo_url: string
@@ -21,6 +22,9 @@ interface RepoSidebarProps {
 export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo, onSettingsClick }: RepoSidebarProps) {
   const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
 
   useEffect(() => {
     loadRepositories()
@@ -36,6 +40,33 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
       setLoading(false)
     } catch (e) {
       console.error('Failed to load repositories:', e)
+    }
+  }
+
+  async function handleDeleteRepo(projectId: string) {
+    try {
+      const res = await fetch(`http://localhost:8000/api/repositories/${projectId}`, {
+        method: 'DELETE'
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.detail || 'Failed to delete repository')
+      }
+
+      // Optimistic update - remove from list immediately
+      setRepos(repos.filter(r => r.project_id !== projectId))
+
+      // Clear selection if deleted repo was selected
+      if (selectedProjectId === projectId) {
+        onSelectRepo('')
+      }
+
+      // Refresh list from server
+      await loadRepositories()
+    } catch (e) {
+      console.error('Failed to delete repository:', e)
+      throw e
     }
   }
 
@@ -74,26 +105,84 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
         ) : (
           <div className="space-y-1">
             {repos.map((repo) => (
-              <button
-                type="button"
+              <div
                 key={repo.project_id}
-                onClick={() => repo.status === 'indexed' && onSelectRepo(repo.project_id)}
-                disabled={repo.status !== 'indexed'}
-                className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2.5 ${
-                  selectedProjectId === repo.project_id
-                    ? 'bg-gray-200 dark:bg-gray-800'
-                    : 'hover:bg-gray-150 dark:hover:bg-gray-850'
-                } ${repo.status !== 'indexed' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                className="relative"
+                onMouseEnter={() => setHoveredId(repo.project_id)}
+                onMouseLeave={() => setHoveredId(null)}
               >
-                <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />
-                <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
-                  {repo.repo_name}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => repo.status === 'indexed' && onSelectRepo(repo.project_id)}
+                  disabled={repo.status !== 'indexed'}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2.5 ${
+                    selectedProjectId === repo.project_id
+                      ? 'bg-gray-200 dark:bg-gray-800'
+                      : 'hover:bg-gray-150 dark:hover:bg-gray-850'
+                  } ${repo.status !== 'indexed' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />
+                  <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
+                    {repo.repo_name}
+                  </span>
+                  {repo.status === 'indexing' && (
+                    <svg
+                      className="animate-spin h-4 w-4 text-gray-400 flex-shrink-0"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                  )}
+                </button>
+
+                {/* Delete button - only on hover */}
+                {hoveredId === repo.project_id && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setRepoToDelete(repo)
+                      setDeleteModalOpen(true)
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-white dark:bg-gray-800 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 transition-colors"
+                    title="Delete repository"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalOpen && repoToDelete && (
+        <DeleteRepoModal
+          isOpen={deleteModalOpen}
+          repoName={repoToDelete.repo_name}
+          projectId={repoToDelete.project_id}
+          onClose={() => {
+            setDeleteModalOpen(false)
+            setRepoToDelete(null)
+          }}
+          onConfirm={handleDeleteRepo}
+        />
+      )}
     </div>
   )
 }

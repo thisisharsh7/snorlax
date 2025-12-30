@@ -16,6 +16,8 @@ interface Repository {
   indexed_at: string
   status: string
   last_synced_at: string | null
+  error_message?: string
+  last_error_at?: string
 }
 
 export default function Dashboard() {
@@ -164,35 +166,34 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col">
         {/* Configuration Warning Banner */}
         {showBanner && (!hasAIKey || !hasGithubToken) && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 p-4">
-            <div className="flex items-start gap-3">
-              <span className="text-yellow-600 dark:text-yellow-400 text-xl">⚠</span>
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-yellow-600 dark:text-yellow-400 text-base">⚠</span>
               <div className="flex-1">
-                <p className="text-yellow-800 dark:text-yellow-200 font-medium text-sm">
-                  Configuration Recommended
-                </p>
-                <p className="text-yellow-700 dark:text-yellow-300 text-sm mt-1">
+                <span className="text-yellow-800 dark:text-yellow-200 font-medium text-xs">
+                  Configuration Recommended:{' '}
+                </span>
+                <span className="text-yellow-700 dark:text-yellow-300 text-xs">
                   {!hasGithubToken && !hasAIKey && (
-                    <>Add GitHub token to sync issues/PRs and AI provider key to use Snorlax.</>
+                    <>Add GitHub token to sync issues/PRs and AI provider key to use Snorlax. </>
                   )}
                   {!hasGithubToken && hasAIKey && (
-                    <>Add GitHub token to sync issues and pull requests from GitHub.</>
+                    <>Add GitHub token to sync issues and pull requests from GitHub. </>
                   )}
                   {hasGithubToken && !hasAIKey && (
-                    <>Add AI provider key to use the Snorlax feature.</>
+                    <>Add AI provider key to use the Snorlax feature. </>
                   )}
-                  {' '}
                   <button
                     onClick={() => setShowSettingsModal(true)}
                     className="text-yellow-900 dark:text-yellow-100 underline font-medium hover:no-underline"
                   >
                     Configure now
                   </button>
-                </p>
+                </span>
               </div>
               <button
                 onClick={() => setShowBanner(false)}
-                className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200"
+                className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 text-sm"
               >
                 ✕
               </button>
@@ -200,7 +201,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {selectedRepo && selectedRepo.status === 'indexed' ? (
+        {selectedRepo ? (
         <div className="flex-1 flex flex-col">
           {/* Unified Header */}
           <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
@@ -209,29 +210,33 @@ export default function Dashboard() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setActiveView('issues')}
+                  onClick={() => selectedRepo.status === 'indexed' && setActiveView('issues')}
+                  disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                     activeView === 'issues'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : selectedRepo.status === 'indexed'
+                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
                   }`}
+                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
                   Issues & PRs
                 </button>
                 <button
                   type="button"
-                  onClick={() => hasAIKey && setActiveView('chat')}
-                  disabled={!hasAIKey}
+                  onClick={() => hasAIKey && selectedRepo.status === 'indexed' && setActiveView('chat')}
+                  disabled={!hasAIKey || selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                     activeView === 'chat'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : hasAIKey
+                      : hasAIKey && selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                       : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
                   }`}
-                  title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : ''}
+                  title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
-                  Snorlax
+                  Chat with Code
                 </button>
               </div>
 
@@ -260,17 +265,19 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={handleReindex}
-                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium"
-                  title="Re-index code to update embeddings"
+                  disabled={selectedRepo.status === 'indexing'}
+                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={selectedRepo.status === 'indexing' ? 'Repository is currently indexing' : 'Re-index code to update embeddings'}
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Re-index Code
+                  <RefreshCw className={`w-4 h-4 ${selectedRepo.status === 'indexing' ? 'animate-spin' : ''}`} />
+                  {selectedRepo.status === 'indexing' ? 'Indexing...' : 'Re-index Code'}
                 </button>
                 <button
                   type="button"
                   onClick={handleSync}
-                  disabled={syncing}
+                  disabled={syncing || selectedRepo.status !== 'indexed'}
                   className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
                   {syncing ? (
                     <>
@@ -289,20 +296,55 @@ export default function Dashboard() {
           </div>
 
           {/* Content */}
-          {activeView === 'issues' ? (
-            <IssuesPRsPanel
-              projectId={selectedRepo.project_id}
-              repoName={selectedRepo.repo_name}
-              lastSyncedAt={selectedRepo.last_synced_at}
-              onImport={loadRepositories}
-              onOpenSettings={() => setShowSettingsModal(true)}
-              onReindex={handleReindex}
-            />
+          {selectedRepo.status === 'indexed' ? (
+            activeView === 'issues' ? (
+              <IssuesPRsPanel
+                projectId={selectedRepo.project_id}
+                repoName={selectedRepo.repo_name}
+                lastSyncedAt={selectedRepo.last_synced_at}
+                onImport={loadRepositories}
+                onOpenSettings={() => setShowSettingsModal(true)}
+                onReindex={handleReindex}
+              />
+            ) : (
+              <ChatPanel
+                projectId={selectedRepo.project_id}
+                repoName={selectedRepo.repo_name}
+              />
+            )
           ) : (
-            <ChatPanel
-              projectId={selectedRepo.project_id}
-              repoName={selectedRepo.repo_name}
-            />
+            <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+              <div className="text-center max-w-2xl px-4">
+                {selectedRepo.status === 'indexing' && (
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-300 dark:border-gray-700 border-t-gray-900 dark:border-t-gray-300 mx-auto mb-4"></div>
+                )}
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                  {selectedRepo.status === 'indexing' ? 'Indexing Repository' : 'Repository Not Ready'}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {selectedRepo.status === 'indexing'
+                    ? 'Please wait while we index your repository. This may take a few minutes.'
+                    : 'This repository failed to index. Please try re-indexing.'}
+                </p>
+
+                {/* Error Details */}
+                {selectedRepo.status === 'failed' && selectedRepo.error_message && (
+                  <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 text-left">
+                    <p className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
+                      Error Details:
+                    </p>
+                    <p className="text-xs text-red-700 dark:text-red-300 font-mono break-words">
+                      {selectedRepo.error_message}
+                    </p>
+                    {selectedRepo.last_error_at && (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-3">
+                        Last error at: {new Date(selectedRepo.last_error_at).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       ) : (
