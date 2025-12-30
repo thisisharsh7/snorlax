@@ -7,6 +7,7 @@ import IssuesPRsPanel from '@/components/IssuesPRsPanel'
 import ChatPanel from '@/components/ChatPanel'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
+import { Github, Settings, Sun, Moon, RefreshCw } from 'lucide-react'
 
 interface Repository {
   repo_url: string
@@ -28,6 +29,25 @@ export default function Dashboard() {
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showBanner, setShowBanner] = useState(true)
+  const [isDark, setIsDark] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  // Initialize dark mode
+  useEffect(() => {
+    const isDarkMode = document.documentElement.classList.contains('dark')
+    setIsDark(isDarkMode)
+  }, [])
+
+  function toggleDarkMode() {
+    const newDarkMode = !isDark
+    setIsDark(newDarkMode)
+    if (newDarkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+    localStorage.setItem('darkMode', newDarkMode ? 'true' : 'false')
+  }
 
   // Load initial repository from URL parameter
   useEffect(() => {
@@ -108,6 +128,30 @@ export default function Dashboard() {
     }
   }
 
+  async function handleSync() {
+    if (!selectedRepo || !hasGithubToken) {
+      setShowSettingsModal(true)
+      return
+    }
+
+    setSyncing(true)
+    try {
+      await Promise.all([
+        fetch(`http://localhost:8000/api/github/import-issues/${selectedRepo.project_id}`, {
+          method: 'POST'
+        }),
+        fetch(`http://localhost:8000/api/github/import-prs/${selectedRepo.project_id}`, {
+          method: 'POST'
+        })
+      ])
+      await loadRepositories()
+    } catch (e) {
+      console.error('Failed to sync:', e)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="h-screen flex">
       <RepoSidebar
@@ -129,13 +173,13 @@ export default function Dashboard() {
                 </p>
                 <p className="text-yellow-700 dark:text-yellow-300 text-sm mt-1">
                   {!hasGithubToken && !hasAIKey && (
-                    <>Add GitHub token to sync issues/PRs and AI provider key to use Code Q&A.</>
+                    <>Add GitHub token to sync issues/PRs and AI provider key to use Snorlax.</>
                   )}
                   {!hasGithubToken && hasAIKey && (
                     <>Add GitHub token to sync issues and pull requests from GitHub.</>
                   )}
                   {hasGithubToken && !hasAIKey && (
-                    <>Add AI provider key to use the Code Q&A feature.</>
+                    <>Add AI provider key to use the Snorlax feature.</>
                   )}
                   {' '}
                   <button
@@ -158,33 +202,89 @@ export default function Dashboard() {
 
         {selectedRepo && selectedRepo.status === 'indexed' ? (
         <div className="flex-1 flex flex-col">
-          {/* View Toggle */}
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-3">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveView('issues')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                  activeView === 'issues'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Issues & PRs
-              </button>
-              <button
-                onClick={() => hasAIKey && setActiveView('chat')}
-                disabled={!hasAIKey}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                  activeView === 'chat'
-                    ? 'bg-blue-600 text-white'
-                    : hasAIKey
-                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
-                }`}
-                title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : ''}
-              >
-                Code Q&A {!hasAIKey && '(requires AI key)'}
-              </button>
+          {/* Unified Header */}
+          <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <div className="flex justify-between items-center">
+              {/* Tab Buttons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveView('issues')}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                    activeView === 'issues'
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  Issues & PRs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => hasAIKey && setActiveView('chat')}
+                  disabled={!hasAIKey}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                    activeView === 'chat'
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                      : hasAIKey
+                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
+                  title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : ''}
+                >
+                  Snorlax
+                </button>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(true)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                  title="Settings"
+                >
+                  <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDarkMode}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                  title="Toggle dark mode"
+                >
+                  {isDark ? (
+                    <Sun className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                  ) : (
+                    <Moon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReindex}
+                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium"
+                  title="Re-index code to update embeddings"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Re-index Code
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {syncing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Syncing...
+                    </>
+                  ) : (
+                    <>
+                      <Github className="w-4 h-4" />
+                      Sync Issues/PRs
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 

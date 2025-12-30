@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Code Q&A",
-  description: "Ask questions about any GitHub repository",
+  title: "Snorlax",
+  description: "AI-powered GitHub issue management and code intelligence platform",
 };
 
 export default function RootLayout({

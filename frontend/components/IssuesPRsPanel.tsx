@@ -191,122 +191,15 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   }
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {repoName}
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">
-              Browse issues and pull requests
-            </p>
-            {lastSyncedAt && (
-              <p className="text-gray-500 dark:text-gray-500 mt-1 text-xs">
-                Last synced: {formatDate(lastSyncedAt)}
-              </p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={onReindex}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm font-medium"
-              title="Re-index code to update embeddings when code changes"
-            >
-              Re-index Code
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={importing}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {importing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Syncing...
-                </>
-              ) : (
-                'Sync Issues/PRs'
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-            <div className="flex items-start gap-3">
-              <span className="text-red-600 dark:text-red-400 text-lg">⚠</span>
-              <div className="flex-1">
-                <p className="text-red-800 dark:text-red-200 font-medium text-sm">Error</p>
-                <p className="text-red-700 dark:text-red-300 text-sm mt-1">{error}</p>
-              </div>
-              <button
-                onClick={() => setError(null)}
-                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Success Message */}
-        {importSuccess && (
-          <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-            <div className="flex items-start gap-3">
-              <span className="text-green-600 dark:text-green-400 text-lg">✓</span>
-              <div className="flex-1">
-                <p className="text-green-800 dark:text-green-200 font-medium text-sm">Success</p>
-                <p className="text-green-700 dark:text-green-300 text-sm mt-1">
-                  Successfully synced issues and pull requests from GitHub
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* GitHub Token Required Prompt */}
-        {showTokenPrompt && (
-          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <div className="flex items-start gap-3">
-              <span className="text-blue-600 dark:text-blue-400 text-lg">ℹ</span>
-              <div className="flex-1">
-                <p className="text-blue-800 dark:text-blue-200 font-medium text-sm">GitHub Token Required</p>
-                <p className="text-blue-700 dark:text-blue-300 text-sm mt-1">
-                  To sync issues and pull requests from GitHub, you need to add a GitHub Fine-Grained Personal Access Token
-                  with "Issues" and "Pull requests" read-only permissions.
-                </p>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => {
-                      setShowTokenPrompt(false)
-                      onOpenSettings()
-                    }}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
-                  >
-                    Add GitHub Token
-                  </button>
-                  <button
-                    onClick={() => setShowTokenPrompt(false)}
-                    className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm font-medium transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Sub-tabs for Issues/PRs */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+        <div className="flex gap-4">
           <button
             onClick={() => setActiveTab('issues')}
-            className={`pb-3 px-1 font-medium text-sm transition-colors ${
+            className={`pb-2 px-1 font-medium text-sm transition-colors ${
               activeTab === 'issues'
-                ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
+                ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
             }`}
           >
@@ -314,9 +207,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           </button>
           <button
             onClick={() => setActiveTab('prs')}
-            className={`pb-3 px-1 font-medium text-sm transition-colors ${
+            className={`pb-2 px-1 font-medium text-sm transition-colors ${
               activeTab === 'prs'
-                ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
+                ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
             }`}
           >
@@ -325,14 +218,14 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
         </div>
 
         {/* Filters */}
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-3">
           {activeTab === 'issues' ? (
             <>
               <button
                 onClick={() => setIssueFilter('all')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   issueFilter === 'all'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -340,9 +233,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
               <button
                 onClick={() => setIssueFilter('open')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   issueFilter === 'open'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -350,9 +243,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
               <button
                 onClick={() => setIssueFilter('closed')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   issueFilter === 'closed'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -363,9 +256,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
             <>
               <button
                 onClick={() => setPrFilter('all')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   prFilter === 'all'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -373,9 +266,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
               <button
                 onClick={() => setPrFilter('open')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   prFilter === 'open'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -383,9 +276,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
               <button
                 onClick={() => setPrFilter('closed')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   prFilter === 'closed'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -393,9 +286,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
               <button
                 onClick={() => setPrFilter('merged')}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   prFilter === 'merged'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -414,9 +307,11 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           </div>
         ) : activeTab === 'issues' ? (
           issues.length === 0 ? (
-            <div className="text-center text-gray-500 dark:text-gray-400 mt-12">
-              <p className="text-lg font-semibold mb-2">No issues found</p>
-              <p className="text-sm">Click "Sync from GitHub" to import issues</p>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center text-gray-500 dark:text-gray-400">
+                <p className="text-lg font-semibold mb-2">No issues found</p>
+                <p className="text-sm">Click "Sync Issues/PRs" to import issues</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
@@ -457,9 +352,11 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           )
         ) : (
           prs.length === 0 ? (
-            <div className="text-center text-gray-500 dark:text-gray-400 mt-12">
-              <p className="text-lg font-semibold mb-2">No pull requests found</p>
-              <p className="text-sm">Click "Sync from GitHub" to import pull requests</p>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center text-gray-500 dark:text-gray-400">
+                <p className="text-lg font-semibold mb-2">No pull requests found</p>
+                <p className="text-sm">Click "Sync Issues/PRs" to import pull requests</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">

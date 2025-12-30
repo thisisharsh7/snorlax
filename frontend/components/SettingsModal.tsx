@@ -100,7 +100,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {/* AI Provider Selection */}
           <div>
             <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 block">
-              AI Provider for Code Q&A <span className="text-xs font-normal text-gray-500">(Optional)</span>
+              AI Provider for Snorlax <span className="text-xs font-normal text-gray-500">(Optional)</span>
             </label>
             <select
               value={aiProvider}
@@ -112,7 +112,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <option value="openrouter">OpenRouter (Multiple Models)</option>
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Only needed for the "Code Q&A" feature. Not required for browsing issues and PRs.
+              Only needed for the "Snorlax" feature. Not required for browsing issues and PRs.
             </p>
           </div>
 
