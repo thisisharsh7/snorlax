@@ -145,7 +145,7 @@ Click the "Sync from GitHub" button to import new issues and PRs or update exist
 ## Project Structure
 
 ```
-code-qa/
+snorlax/
 ├── .env                    # System configuration
 ├── docker-compose.yml      # PostgreSQL setup
 ├── MIGRATIONS.md          # Migration system documentation
@@ -217,7 +217,7 @@ pytest
 
 Connect to the PostgreSQL database:
 ```bash
-docker exec -it code-qa-postgres-1 psql -U codeqa -d codeqa
+docker exec -it snorlax-postgres-1 psql -U snorlax -d snorlax
 ```
 
 View tables:

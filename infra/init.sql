@@ -2,10 +2,10 @@
 CREATE DATABASE cocoindex;
 
 -- Create application database
-CREATE DATABASE codeqa;
+CREATE DATABASE snorlax;
 
--- Connect to codeqa and enable pgvector
-\c codeqa
+-- Connect to snorlax and enable pgvector
+\c snorlax
 
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;

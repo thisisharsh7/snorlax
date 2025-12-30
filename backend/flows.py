@@ -22,7 +22,7 @@ load_dotenv()
 # Using APP_DATABASE_URL for both CocoIndex internal tables and application data
 cocoindex.init(
     cocoindex.Settings(
-        app_namespace="codeqa",
+        app_namespace="snorlax",
         database=cocoindex.DatabaseConnectionSpec(
             url=os.getenv("APP_DATABASE_URL")
         )

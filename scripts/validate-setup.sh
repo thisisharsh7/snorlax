@@ -6,7 +6,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo "🔍 Validating Code Q&A Setup..."
+echo "🔍 Validating Snorlax Setup..."
 echo ""
 
 ERRORS=0

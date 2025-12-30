@@ -1,7 +1,7 @@
 .PHONY: help validate setup dev test clean db-up db-down db-migrate db-reset install-backend install-frontend env
 
 help:
-	@echo "Code Q&A - Development Commands"
+	@echo "Snorlax - Development Commands"
 	@echo "================================"
 	@echo "🚀 Quick Start:"
 	@echo "  make setup      - First time setup (run once)"

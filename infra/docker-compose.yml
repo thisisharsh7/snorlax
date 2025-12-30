@@ -2,8 +2,8 @@ services:
   postgres:
     image: ankane/pgvector:latest
     environment:
-      POSTGRES_USER: codeqa
-      POSTGRES_PASSWORD: codeqa_password
+      POSTGRES_USER: snorlax
+      POSTGRES_PASSWORD: snorlax_password
       POSTGRES_DB: postgres
     ports:
       - "5432:5432"
@@ -11,7 +11,7 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codeqa"]
+      test: ["CMD-SHELL", "pg_isready -U snorlax"]
       interval: 5s
       timeout: 5s
       retries: 5
