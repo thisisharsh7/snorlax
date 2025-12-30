@@ -236,7 +236,7 @@ export default function Dashboard() {
                   }`}
                   title={!hasAIKey ? 'Configure AI provider in Settings to use this feature' : selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
-                  Chat with Code
+                  Code Q&A
                 </button>
               </div>
 

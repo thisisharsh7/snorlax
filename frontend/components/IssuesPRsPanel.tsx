@@ -192,33 +192,34 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Sub-tabs for Issues/PRs */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
-        <div className="flex gap-4">
-          <button
-            onClick={() => setActiveTab('issues')}
-            className={`pb-2 px-1 font-medium text-sm transition-colors ${
-              activeTab === 'issues'
-                ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            Issues ({issues.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('prs')}
-            className={`pb-2 px-1 font-medium text-sm transition-colors ${
-              activeTab === 'prs'
-                ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            Pull Requests ({prs.length})
-          </button>
-        </div>
+      {/* Sub-tabs for Issues/PRs - Only show if repository has been synced */}
+      {lastSyncedAt && (
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+          <div className="flex gap-4">
+            <button
+              onClick={() => setActiveTab('issues')}
+              className={`pb-2 px-1 font-medium text-sm transition-colors ${
+                activeTab === 'issues'
+                  ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Issues ({issues.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('prs')}
+              className={`pb-2 px-1 font-medium text-sm transition-colors ${
+                activeTab === 'prs'
+                  ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Pull Requests ({prs.length})
+            </button>
+          </div>
 
-        {/* Filters */}
-        <div className="flex gap-2 mt-3">
+          {/* Filters */}
+          <div className="flex gap-2 mt-3">
           {activeTab === 'issues' ? (
             <>
               <button
@@ -296,8 +297,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               </button>
             </>
           )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
