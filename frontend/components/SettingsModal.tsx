@@ -46,15 +46,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setMessage(null)
 
     try {
+      // Helper to determine what to send for each key
+      const processKey = (value: string) => {
+        if (value === '••••••••••••••••') return undefined  // Masked - don't change
+        if (value === '') return ''  // Empty - delete
+        return value  // New value - update
+      }
+
       const res = await fetch('http://localhost:8000/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ai_provider: aiProvider,
-          anthropic_api_key: anthropicKey,
-          openai_api_key: openaiKey,
-          openrouter_api_key: openrouterKey,
-          github_token: githubToken
+          anthropic_api_key: processKey(anthropicKey),
+          openai_api_key: processKey(openaiKey),
+          openrouter_api_key: processKey(openrouterKey),
+          github_token: processKey(githubToken)
         })
       })
 

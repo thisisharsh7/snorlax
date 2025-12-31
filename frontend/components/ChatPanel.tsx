@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import ReactMarkdown from 'react-markdown'
 import SettingsModal from './SettingsModal'
+import { Search, MessageCircle, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 
 type QueryMode = 'search' | 'ai'
 
@@ -25,6 +26,8 @@ interface Message {
   mode: 'full' | 'search_only'
   has_llm_answer: boolean
   llm_error?: string
+  loading?: boolean
+  search_message?: string
 }
 
 interface ChatPanelProps {
@@ -53,19 +56,19 @@ function ModeToggle({
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Mode:</span>
+      <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">Mode:</span>
 
       {/* Search Mode Button */}
       <button
         type="button"
         onClick={() => onModeChange('search')}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
           mode === 'search'
-            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-2 border-blue-500'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-transparent hover:bg-gray-200 dark:hover:bg-gray-700'
+            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-500'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-transparent hover:bg-gray-200 dark:hover:bg-gray-700'
         }`}
       >
-        <span>🔍</span>
+        <Search className="w-3.5 h-3.5" />
         <span>Search</span>
       </button>
 
@@ -74,18 +77,18 @@ function ModeToggle({
         type="button"
         onClick={handleAIModeClick}
         disabled={!hasAIKey}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
           mode === 'ai' && hasAIKey
-            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-2 border-blue-500'
+            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-500'
             : !hasAIKey
-            ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border-2 border-transparent cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-transparent hover:bg-gray-200 dark:hover:bg-gray-700'
+            ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-transparent cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-transparent hover:bg-gray-200 dark:hover:bg-gray-700'
         }`}
         title={!hasAIKey ? 'Configure AI provider to enable AI mode' : 'AI-powered Q&A'}
       >
-        <span>💬</span>
+        <MessageCircle className="w-3.5 h-3.5" />
         <span>AI Q&A</span>
-        {!hasAIKey && <span className="text-xs">🔒</span>}
+        {!hasAIKey && <Lock className="w-3 h-3" />}
       </button>
     </div>
   )
@@ -96,25 +99,51 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [expandedSources, setExpandedSources] = useState<number | null>(null)
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set())
+  const [showAllSources, setShowAllSources] = useState<Map<number, boolean>>(new Map())
+  const [showSourcesPanel, setShowSourcesPanel] = useState<Map<number, boolean>>(new Map())
   const [mode, setMode] = useState<QueryMode>('search')
   const [hasAIKey, setHasAIKey] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   // Check API key on mount
   useEffect(() => {
     checkAPIKey()
   }, [])
 
+  // Reset state when switching repositories
+  useEffect(() => {
+    // Clear conversation and UI state
+    setMessages([])
+    setExpandedSources(new Set())
+    setShowAllSources(new Map())
+    setShowSourcesPanel(new Map())
+    setQuestion('')
+    setError('')
+    setLoading(false)
+  }, [projectId])
+
   async function checkAPIKey() {
     try {
-      const res = await fetch('http://localhost:8000/api/settings')
+      // Add cache-busting parameter to ensure fresh data
+      const res = await fetch(`http://localhost:8000/api/settings?t=${Date.now()}`)
       const data = await res.json()
       const hasKey = data.anthropic_key_set || data.openai_key_set || data.openrouter_key_set
       setHasAIKey(hasKey)
 
-      // If API key exists, default to AI mode
-      if (hasKey) {
+      // If all keys deleted while in AI mode, switch to search
+      if (!hasKey && mode === 'ai') {
+        setMode('search')
+      }
+
+      // If key added, default to AI mode
+      if (hasKey && mode === 'search') {
         setMode('ai')
       }
     } catch (e) {
@@ -122,17 +151,92 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
     }
   }
 
+  function toggleSource(msgIdx: number, sourceIdx: number) {
+    const key = `${msgIdx}-${sourceIdx}`
+
+    // If "show all" mode is active, disable it
+    if (showAllSources.get(msgIdx)) {
+      setShowAllSources(new Map(showAllSources).set(msgIdx, false))
+    }
+
+    setExpandedSources(prev => {
+      const next = new Set(prev)
+
+      // Accordion behavior: Close all other sources in this message
+      const messageSources = Array.from(next).filter(k => k.startsWith(`${msgIdx}-`))
+      messageSources.forEach(k => next.delete(k))
+
+      // Toggle the clicked source
+      if (prev.has(key)) {
+        // If it was open, keep it closed (already removed above)
+      } else {
+        next.add(key)  // Open the clicked source
+      }
+
+      return next
+    })
+  }
+
+  function expandAllSources(msgIdx: number, sourceCount: number) {
+    setShowAllSources(new Map(showAllSources).set(msgIdx, true))
+
+    setExpandedSources(prev => {
+      const next = new Set(prev)
+      // Add all sources for this message
+      for (let i = 0; i < sourceCount; i++) {
+        next.add(`${msgIdx}-${i}`)
+      }
+      return next
+    })
+  }
+
+  function collapseAllSources(msgIdx: number) {
+    setShowAllSources(new Map(showAllSources).set(msgIdx, false))
+
+    setExpandedSources(prev => {
+      const next = new Set(prev)
+      // Remove all sources for this message
+      Array.from(next)
+        .filter(key => key.startsWith(`${msgIdx}-`))
+        .forEach(key => next.delete(key))
+      return next
+    })
+  }
+
+  function toggleSourcesPanel(msgIdx: number) {
+    setShowSourcesPanel(prev => {
+      const next = new Map(prev)
+      next.set(msgIdx, !prev.get(msgIdx))
+      return next
+    })
+  }
+
   async function handleQuery() {
     if (!question.trim()) return
 
-    setLoading(true)
+    // Capture the question and clear input immediately
+    const currentQuestion = question
+    setQuestion('')
     setError('')
+
+    // Add user message immediately with loading state
+    const newMessage: Message = {
+      question: currentQuestion,
+      answer: null,
+      sources: [],
+      timestamp: new Date(),
+      mode: 'full',
+      has_llm_answer: false,
+      loading: true
+    }
+    setMessages([...messages, newMessage])
+    setLoading(true)
 
     try {
       const res = await fetch(`http://localhost:8000/api/query/${projectId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, mode })
+        body: JSON.stringify({ question: currentQuestion, mode })
       })
 
       if (!res.ok) {
@@ -142,19 +246,26 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
 
       const data = await res.json()
 
-      setMessages([...messages, {
-        question: question,
-        answer: data.answer,
-        sources: data.sources,
-        timestamp: new Date(),
-        mode: data.mode || 'full',
-        has_llm_answer: data.has_llm_answer !== undefined ? data.has_llm_answer : true,
-        llm_error: data.llm_error
-      }])
-
-      setQuestion('')
+      // Update the last message with the response
+      setMessages(prev => {
+        const updated = [...prev]
+        updated[updated.length - 1] = {
+          question: currentQuestion,
+          answer: data.answer,
+          sources: data.sources,
+          timestamp: new Date(),
+          mode: data.mode || 'full',
+          has_llm_answer: data.has_llm_answer !== undefined ? data.has_llm_answer : true,
+          llm_error: data.llm_error,
+          search_message: data.search_message,
+          loading: false
+        }
+        return updated
+      })
     } catch (e: any) {
       setError(e.message)
+      // Remove the loading message on error
+      setMessages(prev => prev.slice(0, -1))
     } finally {
       setLoading(false)
     }
@@ -170,9 +281,9 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 min-h-0">
         <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
           {messages.map((msg, idx) => (
             <div key={idx} className="space-y-6">
@@ -185,8 +296,17 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
 
               {/* Response Container */}
               <div className="space-y-4">
+                {/* Loading Indicator */}
+                {msg.loading && (
+                  <div className="flex items-center gap-2 py-4">
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
+                )}
+
                 {/* AI Answer Section - Only show if has LLM answer */}
-                {msg.has_llm_answer && msg.answer && (
+                {!msg.loading && msg.has_llm_answer && msg.answer && (
                   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown
@@ -227,97 +347,133 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
                         {msg.answer}
                       </ReactMarkdown>
                     </div>
-                  </div>
-                )}
 
-                {/* Search Results */}
-                {msg.sources.length > 0 && (
-                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {msg.mode === 'search_only' ? 'Search Results' : 'Code Sources'}
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => setExpandedSources(expandedSources === idx ? null : idx)}
-                        className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                      >
-                        {expandedSources === idx ? 'Hide Code' : 'View Code'}
-                      </button>
-                    </div>
-
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                      Found {msg.sources.length} relevant code snippet{msg.sources.length !== 1 ? 's' : ''}
-                    </div>
-
-                    {/* Collapsible Sources */}
-                    {expandedSources === idx ? (
-                      <div className="space-y-3">
-                        {msg.sources.map((source, sidx) => (
-                          <div key={sidx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                            <div className="bg-gray-50 dark:bg-gray-900 px-4 py-2 flex items-center justify-between">
-                              <span className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
-                                {source.filename}
-                              </span>
-                              <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
-                                Lines {source.start_line}-{source.end_line}
-                              </span>
-                            </div>
-                            <div className="overflow-x-auto">
-                              <SyntaxHighlighter
-                                language={source.language}
-                                style={vscDarkPlus}
-                                customStyle={{
-                                  margin: 0,
-                                  fontSize: '0.75rem',
-                                  padding: '1rem'
-                                }}
-                                showLineNumbers
-                                startingLineNumber={source.start_line}
-                                wrapLongLines={false}
-                              >
-                                {source.code}
-                              </SyntaxHighlighter>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {msg.sources.map((source, sidx) => (
-                          <div key={sidx} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
-                            <span className="text-xs font-mono text-gray-700 dark:text-gray-300 truncate">
-                              {source.filename}
-                            </span>
-                            <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
-                              Lines {source.start_line}-{source.end_line}
-                            </span>
-                          </div>
-                        ))}
+                    {/* Sources link at bottom of AI answer */}
+                    {msg.sources.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <button
+                          type="button"
+                          onClick={() => toggleSourcesPanel(idx)}
+                          className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
+                          <span>{msg.sources.length} source{msg.sources.length !== 1 ? 's' : ''}</span>
+                        </button>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Search-Only Mode Banner */}
-                {msg.mode === 'search_only' && !msg.llm_error && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="text-blue-600 dark:text-blue-400 text-lg">💡</span>
-                      <div>
-                        <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                          Showing semantic search results
-                        </p>
-                        <p className="text-xs text-blue-800 dark:text-blue-200">
-                          Configure an AI provider in Settings to get natural language answers along with code search results.
-                        </p>
+                {/* Search Results */}
+                {!msg.loading && msg.sources.length > 0 && (
+                  // In AI Q&A mode: only show if panel is expanded
+                  // In Search mode: always show
+                  (msg.has_llm_answer ? showSourcesPanel.get(idx) : true)
+                ) && (
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {msg.mode === 'search_only' ? 'Search Results' : 'Code Sources'}
+                        </h3>
+                        {(() => {
+                          // Check if any source is expanded
+                          const hasExpandedSource = msg.sources.some((_, sidx) =>
+                            expandedSources.has(`${idx}-${sidx}`)
+                          )
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                hasExpandedSource
+                                  ? collapseAllSources(idx)
+                                  : expandAllSources(idx, msg.sources.length)
+                              }
+                              className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                            >
+                              {hasExpandedSource ? 'Collapse All' : 'Expand All'}
+                            </button>
+                          )
+                        })()}
                       </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Found {msg.sources.length} relevant code snippet{msg.sources.length !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {msg.sources.map((source, sidx) => {
+                        const sourceKey = `${idx}-${sidx}`
+                        const isExpanded = expandedSources.has(sourceKey)
+
+                        return (
+                          <div key={sidx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div className="bg-gray-50 dark:bg-gray-900 px-4 py-2 flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
+                                  {source.filename}
+                                </span>
+                                <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
+                                  Lines {source.start_line}-{source.end_line}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleSource(idx, sidx)}
+                                className="ml-3 flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <ChevronUp className="w-3 h-3" />
+                                    Hide
+                                  </>
+                                ) : (
+                                  <>
+                                    <ChevronDown className="w-3 h-3" />
+                                    View Code
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            {isExpanded && (
+                              <div className="overflow-x-auto">
+                                <SyntaxHighlighter
+                                  language={source.language}
+                                  style={vscDarkPlus}
+                                  customStyle={{
+                                    margin: 0,
+                                    fontSize: '0.75rem',
+                                    padding: '1rem'
+                                  }}
+                                  showLineNumbers
+                                  startingLineNumber={source.start_line}
+                                  wrapLongLines={false}
+                                >
+                                  {source.code}
+                                </SyntaxHighlighter>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
 
+                {/* No Results Message */}
+                {!msg.loading && msg.search_message && msg.sources.length === 0 && (
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {msg.search_message}
+                    </p>
+                  </div>
+                )}
+
                 {/* LLM Error Banner */}
-                {msg.llm_error && (
+                {!msg.loading && msg.llm_error && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <span className="text-red-600 dark:text-red-400 text-lg">⚠️</span>
@@ -336,17 +492,8 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
             </div>
           ))}
 
-          {loading && (
-            <div>
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-6 py-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Scroll anchor */}
+          <div ref={messagesEndRef} />
 
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -399,7 +546,10 @@ export default function ChatPanel({ projectId, repoName }: ChatPanelProps) {
           isOpen={showSettingsModal}
           onClose={() => {
             setShowSettingsModal(false)
-            checkAPIKey()
+            // Small delay to ensure backend has processed the settings
+            setTimeout(() => {
+              checkAPIKey()
+            }, 100)
           }}
         />
       )}

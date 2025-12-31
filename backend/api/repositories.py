@@ -544,7 +544,8 @@ async def query_project(project_id: str, request: QueryRequest):
             sources=[Source(**source) for source in result["sources"]],
             mode=result.get("mode", "full"),
             has_llm_answer=result.get("has_llm_answer", True),
-            llm_error=result.get("llm_error")
+            llm_error=result.get("llm_error"),
+            search_message=result.get("search_message")
         )
 
     except HTTPException:

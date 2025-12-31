@@ -56,11 +56,29 @@ def load_settings_from_db():
         conn = get_db_connection()
         cur = conn.cursor()
 
+        # Load AI provider
+        cur.execute("SELECT value FROM settings WHERE key = 'ai_provider'")
+        provider_result = cur.fetchone()
+        if provider_result and provider_result[0]:
+            os.environ['AI_PROVIDER'] = provider_result[0]
+
         # Load anthropic key
         cur.execute("SELECT value FROM settings WHERE key = 'anthropic_api_key'")
         anthropic_result = cur.fetchone()
         if anthropic_result and anthropic_result[0]:
             os.environ['ANTHROPIC_API_KEY'] = anthropic_result[0]
+
+        # Load openai key
+        cur.execute("SELECT value FROM settings WHERE key = 'openai_api_key'")
+        openai_result = cur.fetchone()
+        if openai_result and openai_result[0]:
+            os.environ['OPENAI_API_KEY'] = openai_result[0]
+
+        # Load openrouter key
+        cur.execute("SELECT value FROM settings WHERE key = 'openrouter_api_key'")
+        openrouter_result = cur.fetchone()
+        if openrouter_result and openrouter_result[0]:
+            os.environ['OPENROUTER_API_KEY'] = openrouter_result[0]
 
         # Load github token
         cur.execute("SELECT value FROM settings WHERE key = 'github_token'")

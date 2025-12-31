@@ -24,3 +24,4 @@ class QueryResponse(BaseModel):
     mode: str = "full"  # "full" or "search_only"
     has_llm_answer: bool = True
     llm_error: Optional[str] = None
+    search_message: Optional[str] = None  # Message when no relevant results found

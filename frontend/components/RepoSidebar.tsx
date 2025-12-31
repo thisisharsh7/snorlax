@@ -35,11 +35,23 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
   async function loadRepositories() {
     try {
       const res = await fetch('http://localhost:8000/api/repositories')
+      if (!res.ok) {
+        console.error('Failed to load repositories: HTTP', res.status)
+        setLoading(false)
+        return
+      }
       const data = await res.json()
-      setRepos(data)
+      // Ensure data is an array before setting it
+      if (Array.isArray(data)) {
+        setRepos(data)
+      } else {
+        console.error('Invalid response format:', data)
+        setRepos([])
+      }
       setLoading(false)
     } catch (e) {
       console.error('Failed to load repositories:', e)
+      setLoading(false)
     }
   }
 

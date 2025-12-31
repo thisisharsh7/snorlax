@@ -49,6 +49,15 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showTokenPrompt, setShowTokenPrompt] = useState(false)
 
+  // Reset UI state when switching repositories
+  useEffect(() => {
+    setError(null)
+    setImportSuccess(false)
+    setShowTokenPrompt(false)
+    setImporting(false)
+    // Note: loading, issues, prs, activeTab, filters are handled by the data loading effect
+  }, [projectId])
+
   useEffect(() => {
     checkGithubToken()
     if (activeTab === 'issues') {

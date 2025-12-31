@@ -2,11 +2,73 @@
 
 from fastapi import APIRouter, HTTPException
 import os
+from typing import Optional
 
 from models.settings import SettingsRequest, SettingsResponse
 from utils.database import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["settings"])
+
+
+def determine_key_action(key_value: Optional[str]) -> str:
+    """
+    Determine what action to take for an API key.
+
+    Args:
+        key_value: The key value from the request
+
+    Returns:
+        'delete': User cleared the field (empty string)
+        'update': User provided a new key (non-empty, not masked)
+        'noop': User didn't change anything (None or masked)
+    """
+    if key_value is None:
+        return 'noop'  # Field not included in request
+    if key_value == "":
+        return 'delete'  # User explicitly cleared the field
+    if key_value.startswith('••'):
+        return 'noop'  # Masked value, no change
+    return 'update'  # New key provided
+
+
+def process_api_key(cur, key_name: str, key_value: Optional[str], env_var_name: str):
+    """
+    Process an API key: delete, update, or skip.
+
+    Args:
+        cur: Database cursor
+        key_name: Database key name (e.g., 'anthropic_api_key')
+        key_value: Value from request
+        env_var_name: Environment variable name (e.g., 'ANTHROPIC_API_KEY')
+    """
+    action = determine_key_action(key_value)
+
+    if action == 'delete':
+        # Delete from database (set to NULL)
+        cur.execute(
+            """INSERT INTO settings (key, value, updated_at)
+               VALUES (%s, NULL, NOW())
+               ON CONFLICT (key) DO UPDATE
+               SET value = NULL, updated_at = NOW()""",
+            (key_name,)
+        )
+        # Clear from environment
+        if env_var_name in os.environ:
+            del os.environ[env_var_name]
+
+    elif action == 'update':
+        # Update database with new key
+        cur.execute(
+            """INSERT INTO settings (key, value, updated_at)
+               VALUES (%s, %s, NOW())
+               ON CONFLICT (key) DO UPDATE
+               SET value = %s, updated_at = NOW()""",
+            (key_name, key_value, key_value)
+        )
+        # Set in environment
+        os.environ[env_var_name] = key_value
+
+    # action == 'noop': do nothing
 
 
 @router.get("/settings", response_model=SettingsResponse)
@@ -84,38 +146,27 @@ async def save_settings(settings: SettingsRequest):
             )
             os.environ['AI_PROVIDER'] = settings.ai_provider
 
-        # Update anthropic key if provided (and not masked)
-        if settings.anthropic_api_key and not settings.anthropic_api_key.startswith('••'):
+        # Process all API keys uniformly
+        process_api_key(cur, 'anthropic_api_key', settings.anthropic_api_key, 'ANTHROPIC_API_KEY')
+        process_api_key(cur, 'openai_api_key', settings.openai_api_key, 'OPENAI_API_KEY')
+        process_api_key(cur, 'openrouter_api_key', settings.openrouter_api_key, 'OPENROUTER_API_KEY')
+
+        # GitHub token - special handling for service reinitialization
+        action = determine_key_action(settings.github_token)
+        if action == 'delete':
             cur.execute(
                 """INSERT INTO settings (key, value, updated_at)
-                   VALUES ('anthropic_api_key', %s, NOW())
-                   ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = NOW()""",
-                (settings.anthropic_api_key, settings.anthropic_api_key)
+                   VALUES ('github_token', NULL, NOW())
+                   ON CONFLICT (key) DO UPDATE SET value = NULL, updated_at = NOW()"""
             )
-            os.environ['ANTHROPIC_API_KEY'] = settings.anthropic_api_key
+            if 'GITHUB_TOKEN' in os.environ:
+                del os.environ['GITHUB_TOKEN']
+            # Reinitialize GitHub service without token
+            global github_service
+            from api.github import github_service
+            github_service = GitHubService(github_token=None)
 
-        # Update openai key if provided (and not masked)
-        if settings.openai_api_key and not settings.openai_api_key.startswith('••'):
-            cur.execute(
-                """INSERT INTO settings (key, value, updated_at)
-                   VALUES ('openai_api_key', %s, NOW())
-                   ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = NOW()""",
-                (settings.openai_api_key, settings.openai_api_key)
-            )
-            os.environ['OPENAI_API_KEY'] = settings.openai_api_key
-
-        # Update openrouter key if provided (and not masked)
-        if settings.openrouter_api_key and not settings.openrouter_api_key.startswith('••'):
-            cur.execute(
-                """INSERT INTO settings (key, value, updated_at)
-                   VALUES ('openrouter_api_key', %s, NOW())
-                   ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = NOW()""",
-                (settings.openrouter_api_key, settings.openrouter_api_key)
-            )
-            os.environ['OPENROUTER_API_KEY'] = settings.openrouter_api_key
-
-        # Update github token if provided (and not masked)
-        if settings.github_token and not settings.github_token.startswith('••'):
+        elif action == 'update':
             cur.execute(
                 """INSERT INTO settings (key, value, updated_at)
                    VALUES ('github_token', %s, NOW())

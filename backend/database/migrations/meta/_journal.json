@@ -43,6 +43,13 @@
       "when": 1735495201000,
       "tag": "0005_add_cascade_deletes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "1",
+      "when": 1735632540000,
+      "tag": "0006_add_error_message_to_repositories",
+      "breakpoints": true
     }
   ]
 }
