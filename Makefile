@@ -1,4 +1,4 @@
-.PHONY: help validate setup dev test clean db-up db-down db-migrate db-reset install-backend install-frontend env
+.PHONY: help validate setup dev test clean db-up db-down db-migrate db-reset install-backend install-frontend env stop stop-all
 
 help:
 	@echo "Snorlax - Development Commands"
@@ -18,6 +18,11 @@ help:
 	@echo "  db-down         - Stop PostgreSQL database"
 	@echo "  db-migrate      - Run database migrations"
 	@echo "  db-reset        - Reset database (⚠️  deletes data)"
+	@echo ""
+	@echo "🎮 Process Management:"
+	@echo "  stop            - Stop backend & frontend"
+	@echo "  stop-all        - Stop everything (including DB)"
+	@echo "  kill-port-XXXX  - Kill process on specific port"
 	@echo ""
 	@echo "🧹 Other Commands:"
 	@echo "  test            - Run tests"
@@ -57,11 +62,18 @@ install-frontend:
 
 dev:
 	@echo "🚀 Starting development servers..."
+	@echo "🧹 Cleaning up any existing processes..."
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+	@sleep 1
+	@echo ""
 	@echo "Backend: http://localhost:8000"
 	@echo "Frontend: http://localhost:3000"
 	@echo "API Docs: http://localhost:8000/docs"
+	@echo ""
 	@docker-compose -f infra/docker-compose.yml up -d
 	@cd backend && . venv/bin/activate && uvicorn main:app --reload --port 8000 &
+	@sleep 2
 	@cd frontend && npm run dev
 
 db-up:
@@ -85,6 +97,23 @@ db-reset:
 	@sleep 3
 	@$(MAKE) db-migrate
 	@echo "✅ Database reset complete"
+
+# Kill process using a specific port (macOS/Linux compatible)
+kill-port-%:
+	@echo "🔍 Checking for processes on port $*..."
+	@lsof -ti:$* | xargs kill -9 2>/dev/null || true
+	@echo "✅ Port $* is now free"
+
+# Stop all dev processes
+stop:
+	@echo "⏹  Stopping development servers..."
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+	@echo "✅ All dev servers stopped"
+
+# Stop everything including database
+stop-all: stop db-down
+	@echo "✅ All services stopped"
 
 test:
 	@echo "🧪 Running tests..."

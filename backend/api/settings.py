@@ -130,6 +130,7 @@ async def save_settings(settings: SettingsRequest):
         Success message
     """
     try:
+        global github_service
         conn = get_db_connection()
         cur = conn.cursor()
 
@@ -162,8 +163,6 @@ async def save_settings(settings: SettingsRequest):
             if 'GITHUB_TOKEN' in os.environ:
                 del os.environ['GITHUB_TOKEN']
             # Reinitialize GitHub service without token
-            global github_service
-            from api.github import github_service
             github_service = GitHubService(github_token=None)
 
         elif action == 'update':
@@ -175,8 +174,6 @@ async def save_settings(settings: SettingsRequest):
             )
             os.environ['GITHUB_TOKEN'] = settings.github_token
             # Reinitialize GitHub service with new token
-            global github_service
-            from api.github import github_service
             github_service = GitHubService(github_token=settings.github_token)
 
         conn.commit()
