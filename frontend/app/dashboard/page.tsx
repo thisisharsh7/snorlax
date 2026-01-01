@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
+import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
 import ChatPanel from '@/components/ChatPanel'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
@@ -28,11 +29,13 @@ export default function Dashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [repos, setRepos] = useState<Repository[]>([])
   const [activeView, setActiveView] = useState<'chat' | 'issues'>('issues')
+  const [issuesView, setIssuesView] = useState<'basic' | 'categorized'>('basic')
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showBanner, setShowBanner] = useState(true)
   const [isDark, setIsDark] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncAbortController, setSyncAbortController] = useState<AbortController | null>(null)
 
   // Initialize dark mode
   useEffect(() => {
@@ -151,20 +154,79 @@ export default function Dashboard() {
       return
     }
 
+    // If already syncing, this is a cancel/stop request
+    if (syncAbortController) {
+      syncAbortController.abort()
+      setSyncAbortController(null)
+      setSyncing(false)
+      alert('Sync cancelled')
+      return
+    }
+
+    // Create new abort controller for this sync operation
+    const controller = new AbortController()
+    setSyncAbortController(controller)
     setSyncing(true)
+
     try {
-      await Promise.all([
+      const [issuesRes, prsRes] = await Promise.all([
         fetch(`http://localhost:8000/api/github/import-issues/${selectedRepo.project_id}`, {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         }),
         fetch(`http://localhost:8000/api/github/import-prs/${selectedRepo.project_id}`, {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         })
       ])
+
+      // Check responses
+      if (!issuesRes.ok) {
+        const errorData = await issuesRes.json().catch(() => ({detail: issuesRes.statusText}))
+
+        if (issuesRes.status === 429) {
+          const resetTime = errorData.detail?.reset_time
+            ? new Date(errorData.detail.reset_time * 1000).toLocaleTimeString()
+            : 'later'
+          alert(`⏱️ GitHub rate limit exceeded. Please try again at ${resetTime}.\n\n💡 Tip: Add a GitHub token in Settings for higher limits (5000/hour vs 60/hour)`)
+        } else {
+          alert(`❌ Issues sync failed: ${errorData.detail?.message || errorData.detail || issuesRes.statusText}`)
+        }
+        throw new Error('Sync failed')
+      }
+
+      if (!prsRes.ok) {
+        const errorData = await prsRes.json().catch(() => ({detail: prsRes.statusText}))
+
+        if (prsRes.status === 429) {
+          const resetTime = errorData.detail?.reset_time
+            ? new Date(errorData.detail.reset_time * 1000).toLocaleTimeString()
+            : 'later'
+          alert(`⏱️ GitHub rate limit exceeded. Please try again at ${resetTime}.\n\n💡 Tip: Add a GitHub token in Settings for higher limits (5000/hour vs 60/hour)`)
+        } else {
+          alert(`❌ PRs sync failed: ${errorData.detail?.message || errorData.detail || prsRes.statusText}`)
+        }
+        throw new Error('Sync failed')
+      }
+
+      // Parse success responses
+      const issuesData = await issuesRes.json()
+      const prsData = await prsRes.json()
+
+      // Show detailed results
+      alert(`✅ Synced ${issuesData.imported} issues and ${prsData.imported} PRs`)
+
       await loadRepositories()
     } catch (e) {
+      // Handle abort (user cancelled)
+      if (e instanceof Error && e.name === 'AbortError') {
+        console.log('Sync cancelled by user')
+        return
+      }
       console.error('Failed to sync:', e)
+      alert(`❌ Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
     } finally {
+      setSyncAbortController(null)
       setSyncing(false)
     }
   }
@@ -225,10 +287,15 @@ export default function Dashboard() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => selectedRepo.status === 'indexed' && setActiveView('issues')}
+                  onClick={() => {
+                    if (selectedRepo.status === 'indexed') {
+                      setActiveView('issues')
+                      setIssuesView('basic')
+                    }
+                  }}
                   disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    activeView === 'issues'
+                    activeView === 'issues' && issuesView === 'basic'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
                       : selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -237,6 +304,26 @@ export default function Dashboard() {
                   title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
                   Issues & PRs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedRepo.status === 'indexed') {
+                      setActiveView('issues')
+                      setIssuesView('categorized')
+                    }
+                  }}
+                  disabled={selectedRepo.status !== 'indexed'}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                    activeView === 'issues' && issuesView === 'categorized'
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                      : selectedRepo.status === 'indexed'
+                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
+                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
+                >
+                  AI Analysis
                 </button>
                 <button
                   type="button"
@@ -290,14 +377,14 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={handleSync}
-                  disabled={syncing || selectedRepo.status !== 'indexed'}
+                  disabled={selectedRepo.status !== 'indexed'}
                   className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
+                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : syncing ? 'Click to stop sync' : 'Sync issues and PRs from GitHub'}
                 >
                   {syncing ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Syncing...
+                      Stop Sync
                     </>
                   ) : (
                     <>
@@ -313,14 +400,21 @@ export default function Dashboard() {
           {/* Content */}
           {selectedRepo.status === 'indexed' ? (
             activeView === 'issues' ? (
-              <IssuesPRsPanel
-                projectId={selectedRepo.project_id}
-                repoName={selectedRepo.repo_name}
-                lastSyncedAt={selectedRepo.last_synced_at}
-                onImport={loadRepositories}
-                onOpenSettings={() => setShowSettingsModal(true)}
-                onReindex={handleReindex}
-              />
+              issuesView === 'basic' ? (
+                <IssuesPRsPanel
+                  projectId={selectedRepo.project_id}
+                  repoName={selectedRepo.repo_name}
+                  lastSyncedAt={selectedRepo.last_synced_at}
+                  onImport={loadRepositories}
+                  onOpenSettings={() => setShowSettingsModal(true)}
+                  onReindex={handleReindex}
+                />
+              ) : (
+                <CategorizedIssuesPanel
+                  projectId={selectedRepo.project_id}
+                  repoName={selectedRepo.repo_name}
+                />
+              )
             ) : (
               <ChatPanel
                 projectId={selectedRepo.project_id}

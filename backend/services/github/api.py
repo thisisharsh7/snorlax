@@ -2,7 +2,7 @@
 Service for GitHub API integration - fetching issues, PRs, and comments.
 """
 
-from github import Github, GithubException
+from github import Github, GithubException, RateLimitExceededException
 import os
 from typing import List, Dict, Optional
 import psycopg
@@ -30,6 +30,48 @@ class GitHubService:
     def get_db_connection(self):
         """Get database connection."""
         return psycopg.connect(self.db_url)
+
+    def check_rate_limit(self, required_calls: int = 20) -> Dict:
+        """
+        Check if sufficient GitHub API rate limit is available.
+
+        Args:
+            required_calls: Minimum number of API calls required
+
+        Returns:
+            Dictionary with rate limit status
+        """
+        try:
+            # Get rate limit info from GitHub API
+            rate_limit_data = self.github.get_rate_limit()
+
+            # Access the core rate limit (for most API calls)
+            # Correct structure: RateLimitOverview.resources.core
+            # - rate_limit_data = RateLimitOverview
+            # - rate_limit_data.resources = RateLimit (has .core, .search, etc.)
+            # - rate_limit_data.resources.core = Rate (has .remaining, .reset)
+            remaining = rate_limit_data.resources.core.remaining
+            reset_time = rate_limit_data.resources.core.reset
+
+            print(f"Rate limit check: {remaining} calls remaining, resets at {reset_time.strftime('%I:%M %p')}")
+
+            if remaining < required_calls:
+                return {
+                    "sufficient": False,
+                    "remaining": remaining,
+                    "reset_time": reset_time.timestamp(),
+                    "message": f"Insufficient rate limit. Only {remaining} calls remaining. Please wait until {reset_time.strftime('%I:%M %p')} or add a GitHub token for higher limits."
+                }
+
+            return {
+                "sufficient": True,
+                "remaining": remaining,
+                "reset_time": reset_time.timestamp()
+            }
+        except Exception as e:
+            # If we can't check rate limit, proceed cautiously
+            print(f"Warning: Could not check rate limit: {str(e)}")
+            return {"sufficient": True, "remaining": -1}
 
     def extract_repo_name_from_url(self, github_url: str) -> str:
         """
@@ -59,49 +101,84 @@ class GitHubService:
 
     def import_issues(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
-        Import all issues from a GitHub repository.
+        Import issues from a GitHub repository.
 
         Args:
             project_id: Project identifier
             github_url: GitHub repository URL
-            limit: Optional limit on number of issues to fetch (for testing)
+            limit: Optional limit on number of NEW issues to import (default: 200)
 
         Returns:
             Dictionary with import statistics
         """
         try:
+            # Check rate limit before starting
+            rate_limit_check = self.check_rate_limit(required_calls=10)
+            if not rate_limit_check["sufficient"]:
+                return {
+                    "status": "rate_limited",
+                    "message": rate_limit_check["message"],
+                    "reset_time": rate_limit_check["reset_time"]
+                }
+
             repo_name = self.extract_repo_name_from_url(github_url)
             repo = self.github.get_repo(repo_name)
 
             conn = self.get_db_connection()
             cur = conn.cursor()
 
-            imported_count = 0
-            skipped_count = 0
+            imported_count = 0  # NEW items imported
+            skipped_count = 0   # Duplicate items skipped
+            fetched_count = 0   # Total items fetched from API
 
-            # Fetch all issues (open and closed)
+            # Pre-fetch ALL existing issue numbers into a set for fast O(1) lookup
+            cur.execute(
+                "SELECT issue_number FROM github_issues WHERE project_id = %s",
+                (project_id,)
+            )
+            existing_issues = set(row[0] for row in cur.fetchall())
+
+            # Fetch issues page-by-page (don't convert to list immediately)
             issues = repo.get_issues(state='all')
+
+            print(f"Importing up to {limit if limit else 'all'} NEW issues (DB has {len(existing_issues)} existing)...")
 
             for issue in issues:
                 # Skip pull requests (they have their own table)
                 if issue.pull_request:
                     continue
 
-                try:
-                    # Check if already exists
-                    cur.execute(
-                        "SELECT id FROM github_issues WHERE project_id = %s AND issue_number = %s",
-                        (project_id, issue.number)
-                    )
+                fetched_count += 1
 
-                    if cur.fetchone():
+                # Stop if we've imported enough NEW items
+                if limit and imported_count >= limit:
+                    print(f"✓ Reached import limit of {limit} NEW issues")
+                    break
+
+                # Safety check: stop if we've fetched way more than the limit
+                # (indicates mostly duplicates, prevents runaway API calls)
+                if limit and fetched_count >= limit * 2:
+                    print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
+                    break
+
+                # Rate limit monitoring every 50 items
+                if fetched_count % 50 == 0:
+                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, skipped {skipped_count}")
+                    rate_check = self.check_rate_limit(required_calls=5)
+                    if not rate_check["sufficient"]:
+                        print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
+                        break
+
+                try:
+                    # Fast O(1) set lookup instead of DB query
+                    if issue.number in existing_issues:
                         skipped_count += 1
                         continue
 
                     # Extract labels
                     labels = [label.name for label in issue.labels]
 
-                    # Insert issue
+                    # Insert new issue
                     cur.execute("""
                         INSERT INTO github_issues (
                             project_id, issue_number, title, body, state,
@@ -124,30 +201,52 @@ class GitHubService:
                     ))
 
                     imported_count += 1
+                    existing_issues.add(issue.number)  # Add to set to avoid re-importing
 
-                    if limit and imported_count >= limit:
-                        break
+                    # Commit every 100 items to save progress
+                    if imported_count % 100 == 0:
+                        conn.commit()
+                        print(f"✓ Committed batch: {imported_count} issues imported so far")
 
                 except Exception as e:
                     print(f"Error importing issue #{issue.number}: {str(e)}")
                     continue
 
+            # Final commit
             conn.commit()
             cur.close()
             conn.close()
+
+            # Get final rate limit status
+            final_rate_check = self.check_rate_limit(required_calls=0)
 
             return {
                 "status": "success",
                 "imported": imported_count,
                 "skipped": skipped_count,
+                "fetched": fetched_count,
                 "total": imported_count + skipped_count,
-                "repository": repo_name
+                "repository": repo_name,
+                "rate_limit_remaining": final_rate_check.get("remaining", -1)
             }
 
+        except RateLimitExceededException as e:
+            return {
+                "status": "rate_limited",
+                "message": "GitHub API rate limit exceeded. Try again later or add a GitHub token for higher limits.",
+                "reset_time": e.reset_time if hasattr(e, 'reset_time') else None
+            }
         except GithubException as e:
+            if e.status == 403 and 'rate limit' in str(e).lower():
+                return {
+                    "status": "rate_limited",
+                    "message": "GitHub API rate limit exceeded. Try again later or add a GitHub token.",
+                    "reset_time": None
+                }
             return {
                 "status": "error",
-                "message": f"GitHub API error: {str(e)}"
+                "message": f"GitHub API error: {str(e)}",
+                "error_code": e.status if hasattr(e, 'status') else None
             }
         except Exception as e:
             return {
@@ -157,38 +256,73 @@ class GitHubService:
 
     def import_pull_requests(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
-        Import all pull requests from a GitHub repository.
+        Import pull requests from a GitHub repository.
 
         Args:
             project_id: Project identifier
             github_url: GitHub repository URL
-            limit: Optional limit on number of PRs to fetch
+            limit: Optional limit on number of NEW PRs to import (default: 200)
 
         Returns:
             Dictionary with import statistics
         """
         try:
+            # Check rate limit before starting
+            rate_limit_check = self.check_rate_limit(required_calls=10)
+            if not rate_limit_check["sufficient"]:
+                return {
+                    "status": "rate_limited",
+                    "message": rate_limit_check["message"],
+                    "reset_time": rate_limit_check["reset_time"]
+                }
+
             repo_name = self.extract_repo_name_from_url(github_url)
             repo = self.github.get_repo(repo_name)
 
             conn = self.get_db_connection()
             cur = conn.cursor()
 
-            imported_count = 0
-            skipped_count = 0
+            imported_count = 0  # NEW items imported
+            skipped_count = 0   # Duplicate items skipped
+            fetched_count = 0   # Total items fetched from API
 
-            # Fetch all PRs (open, closed, and merged)
+            # Pre-fetch ALL existing PR numbers into a set for fast O(1) lookup
+            cur.execute(
+                "SELECT pr_number FROM github_pull_requests WHERE project_id = %s",
+                (project_id,)
+            )
+            existing_prs = set(row[0] for row in cur.fetchall())
+
+            # Fetch PRs page-by-page (don't convert to list immediately)
             prs = repo.get_pulls(state='all')
 
-            for pr in prs:
-                try:
-                    # Check if already exists
-                    cur.execute(
-                        "SELECT id FROM github_pull_requests WHERE project_id = %s AND pr_number = %s",
-                        (project_id, pr.number)
-                    )
+            print(f"Importing up to {limit if limit else 'all'} NEW PRs (DB has {len(existing_prs)} existing)...")
 
-                    if cur.fetchone():
+            for pr in prs:
+                fetched_count += 1
+
+                # Stop if we've imported enough NEW items
+                if limit and imported_count >= limit:
+                    print(f"✓ Reached import limit of {limit} NEW PRs")
+                    break
+
+                # Safety check: stop if we've fetched way more than the limit
+                # (indicates mostly duplicates, prevents runaway API calls)
+                if limit and fetched_count >= limit * 2:
+                    print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
+                    break
+
+                # Rate limit monitoring every 50 items
+                if fetched_count % 50 == 0:
+                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, skipped {skipped_count}")
+                    rate_check = self.check_rate_limit(required_calls=5)
+                    if not rate_check["sufficient"]:
+                        print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
+                        break
+
+                try:
+                    # Fast O(1) set lookup instead of DB query
+                    if pr.number in existing_prs:
                         skipped_count += 1
                         continue
 
@@ -201,7 +335,7 @@ class GitHubService:
                     else:
                         state = pr.state
 
-                    # Insert PR
+                    # Insert new PR
                     cur.execute("""
                         INSERT INTO github_pull_requests (
                             project_id, pr_number, title, body, state,
@@ -235,30 +369,52 @@ class GitHubService:
                     ))
 
                     imported_count += 1
+                    existing_prs.add(pr.number)  # Add to set to avoid re-importing
 
-                    if limit and imported_count >= limit:
-                        break
+                    # Commit every 100 items to save progress
+                    if imported_count % 100 == 0:
+                        conn.commit()
+                        print(f"✓ Committed batch: {imported_count} PRs imported so far")
 
                 except Exception as e:
                     print(f"Error importing PR #{pr.number}: {str(e)}")
                     continue
 
+            # Final commit
             conn.commit()
             cur.close()
             conn.close()
+
+            # Get final rate limit status
+            final_rate_check = self.check_rate_limit(required_calls=0)
 
             return {
                 "status": "success",
                 "imported": imported_count,
                 "skipped": skipped_count,
+                "fetched": fetched_count,
                 "total": imported_count + skipped_count,
-                "repository": repo_name
+                "repository": repo_name,
+                "rate_limit_remaining": final_rate_check.get("remaining", -1)
             }
 
+        except RateLimitExceededException as e:
+            return {
+                "status": "rate_limited",
+                "message": "GitHub API rate limit exceeded. Try again later or add a GitHub token for higher limits.",
+                "reset_time": e.reset_time if hasattr(e, 'reset_time') else None
+            }
         except GithubException as e:
+            if e.status == 403 and 'rate limit' in str(e).lower():
+                return {
+                    "status": "rate_limited",
+                    "message": "GitHub API rate limit exceeded. Try again later or add a GitHub token.",
+                    "reset_time": None
+                }
             return {
                 "status": "error",
-                "message": f"GitHub API error: {str(e)}"
+                "message": f"GitHub API error: {str(e)}",
+                "error_code": e.status if hasattr(e, 'status') else None
             }
         except Exception as e:
             return {
@@ -311,7 +467,7 @@ class GitHubService:
                 "labels": row[5],
                 "created_at": str(row[6]),
                 "comments_count": row[7],
-                "url": row[8]
+                "html_url": row[8]
             }
             for row in results
         ]
@@ -363,7 +519,7 @@ class GitHubService:
                 "additions": row[7],
                 "deletions": row[8],
                 "changed_files": row[9],
-                "url": row[10]
+                "html_url": row[10]
             }
             for row in results
         ]

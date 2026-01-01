@@ -1,6 +1,6 @@
 """GitHub integration API endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 
 from utils.database import get_db_connection
@@ -13,7 +13,10 @@ github_service = GitHubService()
 
 
 @router.post("/import-issues/{project_id}")
-async def import_github_issues(project_id: str, limit: Optional[int] = None):
+async def import_github_issues(
+    project_id: str,
+    limit: Optional[int] = Query(default=200, description="Max issues to import (default: 200)")
+):
     """
     Import GitHub issues for a project.
 
@@ -44,8 +47,24 @@ async def import_github_issues(project_id: str, limit: Optional[int] = None):
         # Import issues
         result = github_service.import_issues(project_id, repo_url, limit)
 
-        if result["status"] == "error":
-            raise HTTPException(status_code=500, detail=result["message"])
+        if result["status"] == "rate_limited":
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": result["message"],
+                    "reset_time": result.get("reset_time"),
+                    "type": "rate_limit"
+                }
+            )
+        elif result["status"] == "error":
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": result["message"],
+                    "error_code": result.get("error_code"),
+                    "type": "github_error"
+                }
+            )
 
         # Update last_synced_at timestamp
         conn = get_db_connection()
@@ -70,7 +89,10 @@ async def import_github_issues(project_id: str, limit: Optional[int] = None):
 
 
 @router.post("/import-prs/{project_id}")
-async def import_github_prs(project_id: str, limit: Optional[int] = None):
+async def import_github_prs(
+    project_id: str,
+    limit: Optional[int] = Query(default=200, description="Max PRs to import (default: 200)")
+):
     """
     Import GitHub pull requests for a project.
 
@@ -101,8 +123,24 @@ async def import_github_prs(project_id: str, limit: Optional[int] = None):
         # Import PRs
         result = github_service.import_pull_requests(project_id, repo_url, limit)
 
-        if result["status"] == "error":
-            raise HTTPException(status_code=500, detail=result["message"])
+        if result["status"] == "rate_limited":
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": result["message"],
+                    "reset_time": result.get("reset_time"),
+                    "type": "rate_limit"
+                }
+            )
+        elif result["status"] == "error":
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": result["message"],
+                    "error_code": result.get("error_code"),
+                    "type": "github_error"
+                }
+            )
 
         # Update last_synced_at timestamp
         conn = get_db_connection()
