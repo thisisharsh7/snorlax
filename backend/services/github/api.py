@@ -128,8 +128,17 @@ class GitHubService:
             cur = conn.cursor()
 
             imported_count = 0  # NEW items imported
-            skipped_count = 0   # Duplicate items skipped
+            updated_count = 0   # Existing items updated
+            skipped_count = 0   # Unchanged items skipped
             fetched_count = 0   # Total items fetched from API
+
+            # Check for last sync time to enable incremental sync
+            cur.execute(
+                "SELECT last_issues_sync FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+            last_sync = result[0] if result else None
 
             # Pre-fetch ALL existing issue numbers into a set for fast O(1) lookup
             cur.execute(
@@ -138,8 +147,14 @@ class GitHubService:
             )
             existing_issues = set(row[0] for row in cur.fetchall())
 
-            # Fetch issues page-by-page (don't convert to list immediately)
-            issues = repo.get_issues(state='all')
+            # Use incremental sync if we have a previous sync time
+            # This fetches only issues updated since last sync
+            if last_sync:
+                print(f"Incremental sync: fetching issues updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
+                issues = repo.get_issues(state='all', since=last_sync)
+            else:
+                print(f"Full sync: fetching all issues")
+                issues = repo.get_issues(state='all')
 
             print(f"Importing up to {limit if limit else 'all'} NEW issues (DB has {len(existing_issues)} existing)...")
 
@@ -170,47 +185,74 @@ class GitHubService:
                         break
 
                 try:
-                    # Fast O(1) set lookup instead of DB query
-                    if issue.number in existing_issues:
-                        skipped_count += 1
-                        continue
-
                     # Extract labels
                     labels = [label.name for label in issue.labels]
 
-                    # Insert new issue
-                    cur.execute("""
-                        INSERT INTO github_issues (
-                            project_id, issue_number, title, body, state,
-                            author, labels, created_at, updated_at, closed_at,
-                            comments_count, github_url
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        project_id,
-                        issue.number,
-                        issue.title,
-                        issue.body or "",
-                        issue.state,
-                        issue.user.login if issue.user else "unknown",
-                        labels,
-                        issue.created_at,
-                        issue.updated_at,
-                        issue.closed_at,
-                        issue.comments,
-                        issue.html_url
-                    ))
-
-                    imported_count += 1
-                    existing_issues.add(issue.number)  # Add to set to avoid re-importing
+                    # Check if issue already exists
+                    if issue.number in existing_issues:
+                        # Update existing issue with latest data
+                        cur.execute("""
+                            UPDATE github_issues SET
+                                title = %s,
+                                body = %s,
+                                state = %s,
+                                labels = %s,
+                                updated_at = %s,
+                                closed_at = %s,
+                                comments_count = %s
+                            WHERE project_id = %s AND issue_number = %s
+                        """, (
+                            issue.title,
+                            issue.body or "",
+                            issue.state,
+                            labels,
+                            issue.updated_at,
+                            issue.closed_at,
+                            issue.comments,
+                            project_id,
+                            issue.number
+                        ))
+                        updated_count += 1
+                    else:
+                        # Insert new issue
+                        cur.execute("""
+                            INSERT INTO github_issues (
+                                project_id, issue_number, title, body, state,
+                                author, labels, created_at, updated_at, closed_at,
+                                comments_count, github_url
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            project_id,
+                            issue.number,
+                            issue.title,
+                            issue.body or "",
+                            issue.state,
+                            issue.user.login if issue.user else "unknown",
+                            labels,
+                            issue.created_at,
+                            issue.updated_at,
+                            issue.closed_at,
+                            issue.comments,
+                            issue.html_url
+                        ))
+                        imported_count += 1
+                        existing_issues.add(issue.number)  # Add to set to avoid re-importing
 
                     # Commit every 100 items to save progress
-                    if imported_count % 100 == 0:
+                    if (imported_count + updated_count) % 100 == 0:
                         conn.commit()
-                        print(f"✓ Committed batch: {imported_count} issues imported so far")
+                        print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
 
                 except Exception as e:
                     print(f"Error importing issue #{issue.number}: {str(e)}")
                     continue
+
+            # Update last_issues_sync timestamp for incremental sync
+            cur.execute("""
+                UPDATE repositories
+                SET last_issues_sync = NOW()
+                WHERE project_id = %s
+            """, (project_id,))
 
             # Final commit
             conn.commit()
@@ -223,11 +265,13 @@ class GitHubService:
             return {
                 "status": "success",
                 "imported": imported_count,
+                "updated": updated_count,
                 "skipped": skipped_count,
                 "fetched": fetched_count,
-                "total": imported_count + skipped_count,
+                "total": imported_count + updated_count + skipped_count,
                 "repository": repo_name,
-                "rate_limit_remaining": final_rate_check.get("remaining", -1)
+                "rate_limit_remaining": final_rate_check.get("remaining", -1),
+                "sync_type": "incremental" if last_sync else "full"
             }
 
         except RateLimitExceededException as e:
@@ -283,8 +327,17 @@ class GitHubService:
             cur = conn.cursor()
 
             imported_count = 0  # NEW items imported
-            skipped_count = 0   # Duplicate items skipped
+            updated_count = 0   # Existing items updated
+            skipped_count = 0   # Unchanged items skipped
             fetched_count = 0   # Total items fetched from API
+
+            # Check for last sync time to enable incremental sync
+            cur.execute(
+                "SELECT last_prs_sync FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+            last_sync = result[0] if result else None
 
             # Pre-fetch ALL existing PR numbers into a set for fast O(1) lookup
             cur.execute(
@@ -293,8 +346,14 @@ class GitHubService:
             )
             existing_prs = set(row[0] for row in cur.fetchall())
 
-            # Fetch PRs page-by-page (don't convert to list immediately)
-            prs = repo.get_pulls(state='all')
+            # Note: PyGithub's get_pulls() doesn't support 'since' parameter
+            # So we fetch all PRs but this will be optimized in future with direct API calls
+            prs = repo.get_pulls(state='all', sort='updated', direction='desc')
+
+            if last_sync:
+                print(f"Incremental sync: filtering PRs updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
+            else:
+                print(f"Full sync: fetching all PRs")
 
             print(f"Importing up to {limit if limit else 'all'} NEW PRs (DB has {len(existing_prs)} existing)...")
 
@@ -312,20 +371,20 @@ class GitHubService:
                     print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
                     break
 
+                # Skip PRs not updated since last sync (for incremental sync)
+                if last_sync and pr.updated_at < last_sync:
+                    skipped_count += 1
+                    continue
+
                 # Rate limit monitoring every 50 items
                 if fetched_count % 50 == 0:
-                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, skipped {skipped_count}")
+                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, updated {updated_count}, skipped {skipped_count}")
                     rate_check = self.check_rate_limit(required_calls=5)
                     if not rate_check["sufficient"]:
                         print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
                         break
 
                 try:
-                    # Fast O(1) set lookup instead of DB query
-                    if pr.number in existing_prs:
-                        skipped_count += 1
-                        continue
-
                     # Extract labels
                     labels = [label.name for label in pr.labels]
 
@@ -335,50 +394,88 @@ class GitHubService:
                     else:
                         state = pr.state
 
-                    # Insert new PR
-                    cur.execute("""
-                        INSERT INTO github_pull_requests (
-                            project_id, pr_number, title, body, state,
-                            author, labels, created_at, updated_at, closed_at,
-                            merged_at, comments_count, review_comments_count,
-                            commits_count, additions, deletions, changed_files,
-                            github_url, head_branch, base_branch, mergeable
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        project_id,
-                        pr.number,
-                        pr.title,
-                        pr.body or "",
-                        state,
-                        pr.user.login if pr.user else "unknown",
-                        labels,
-                        pr.created_at,
-                        pr.updated_at,
-                        pr.closed_at,
-                        pr.merged_at,
-                        pr.comments,
-                        pr.review_comments,
-                        pr.commits,
-                        pr.additions,
-                        pr.deletions,
-                        pr.changed_files,
-                        pr.html_url,
-                        pr.head.ref if pr.head else None,
-                        pr.base.ref if pr.base else None,
-                        pr.mergeable
-                    ))
-
-                    imported_count += 1
-                    existing_prs.add(pr.number)  # Add to set to avoid re-importing
+                    # Check if PR already exists
+                    if pr.number in existing_prs:
+                        # Update existing PR with latest data
+                        cur.execute("""
+                            UPDATE github_pull_requests SET
+                                title = %s,
+                                body = %s,
+                                state = %s,
+                                labels = %s,
+                                updated_at = %s,
+                                closed_at = %s,
+                                merged_at = %s,
+                                comments_count = %s,
+                                review_comments_count = %s,
+                                mergeable = %s
+                            WHERE project_id = %s AND pr_number = %s
+                        """, (
+                            pr.title,
+                            pr.body or "",
+                            state,
+                            labels,
+                            pr.updated_at,
+                            pr.closed_at,
+                            pr.merged_at,
+                            pr.comments,
+                            pr.review_comments,
+                            pr.mergeable,
+                            project_id,
+                            pr.number
+                        ))
+                        updated_count += 1
+                    else:
+                        # Insert new PR
+                        cur.execute("""
+                            INSERT INTO github_pull_requests (
+                                project_id, pr_number, title, body, state,
+                                author, labels, created_at, updated_at, closed_at,
+                                merged_at, comments_count, review_comments_count,
+                                commits_count, additions, deletions, changed_files,
+                                github_url, head_branch, base_branch, mergeable
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            project_id,
+                            pr.number,
+                            pr.title,
+                            pr.body or "",
+                            state,
+                            pr.user.login if pr.user else "unknown",
+                            labels,
+                            pr.created_at,
+                            pr.updated_at,
+                            pr.closed_at,
+                            pr.merged_at,
+                            pr.comments,
+                            pr.review_comments,
+                            pr.commits,
+                            pr.additions,
+                            pr.deletions,
+                            pr.changed_files,
+                            pr.html_url,
+                            pr.head.ref if pr.head else None,
+                            pr.base.ref if pr.base else None,
+                            pr.mergeable
+                        ))
+                        imported_count += 1
+                        existing_prs.add(pr.number)  # Add to set to avoid re-importing
 
                     # Commit every 100 items to save progress
-                    if imported_count % 100 == 0:
+                    if (imported_count + updated_count) % 100 == 0:
                         conn.commit()
-                        print(f"✓ Committed batch: {imported_count} PRs imported so far")
+                        print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
 
                 except Exception as e:
                     print(f"Error importing PR #{pr.number}: {str(e)}")
                     continue
+
+            # Update last_prs_sync timestamp for incremental sync
+            cur.execute("""
+                UPDATE repositories
+                SET last_prs_sync = NOW()
+                WHERE project_id = %s
+            """, (project_id,))
 
             # Final commit
             conn.commit()
@@ -391,11 +488,13 @@ class GitHubService:
             return {
                 "status": "success",
                 "imported": imported_count,
+                "updated": updated_count,
                 "skipped": skipped_count,
                 "fetched": fetched_count,
-                "total": imported_count + skipped_count,
+                "total": imported_count + updated_count + skipped_count,
                 "repository": repo_name,
-                "rate_limit_remaining": final_rate_check.get("remaining", -1)
+                "rate_limit_remaining": final_rate_check.get("remaining", -1),
+                "sync_type": "incremental" if last_sync else "full"
             }
 
         except RateLimitExceededException as e:
