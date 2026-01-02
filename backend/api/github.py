@@ -2,14 +2,23 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+import os
 
 from utils.database import get_db_connection
 from services.github.api import GitHubService
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
-# Initialize GitHub service
-github_service = GitHubService()
+
+def get_github_service() -> GitHubService:
+    """
+    Get GitHub service with current token from environment/database.
+
+    This function ensures the token is loaded from the database settings
+    which are loaded at startup by load_settings_from_db().
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    return GitHubService(github_token=token)
 
 
 @router.post("/import-issues/{project_id}")
@@ -43,6 +52,9 @@ async def import_github_issues(
             raise HTTPException(status_code=404, detail="Project not found")
 
         repo_url = result[0]
+
+        # Get GitHub service with current token
+        github_service = get_github_service()
 
         # Import issues
         result = github_service.import_issues(project_id, repo_url, limit)
@@ -120,6 +132,9 @@ async def import_github_prs(
 
         repo_url = result[0]
 
+        # Get GitHub service with current token
+        github_service = get_github_service()
+
         # Import PRs
         result = github_service.import_pull_requests(project_id, repo_url, limit)
 
@@ -177,6 +192,9 @@ async def get_github_issues(project_id: str, state: Optional[str] = None):
         List of issues
     """
     try:
+        # Get GitHub service with current token
+        github_service = get_github_service()
+
         issues = github_service.get_issues_for_project(project_id, state)
         return {"issues": issues, "count": len(issues)}
 
@@ -200,6 +218,9 @@ async def get_github_prs(project_id: str, state: Optional[str] = None):
         List of pull requests
     """
     try:
+        # Get GitHub service with current token
+        github_service = get_github_service()
+
         prs = github_service.get_pull_requests_for_project(project_id, state)
         return {"pull_requests": prs, "count": len(prs)}
 

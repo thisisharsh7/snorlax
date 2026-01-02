@@ -22,8 +22,15 @@ class GitHubService:
         self.token = github_token or os.getenv("GITHUB_TOKEN")
         if self.token:
             self.github = Github(self.token)
+            # Show first 10 chars of token for verification (not full token for security)
+            token_preview = self.token[:10] if len(self.token) >= 10 else self.token[:5]
+            print(f"✓ GitHub service initialized with AUTHENTICATED token (starts with: {token_preview}...)")
+            print(f"   Rate limit: 5,000 calls/hour")
         else:
             self.github = Github()  # Unauthenticated (rate limited)
+            print("⚠ WARNING: GitHub service initialized WITHOUT token")
+            print("   Rate limit: 60 calls/hour (unauthenticated)")
+            print("   Add a GitHub token in Settings to get 5,000 calls/hour")
 
         self.db_url = os.getenv("APP_DATABASE_URL")
 
@@ -51,9 +58,12 @@ class GitHubService:
             # - rate_limit_data.resources = RateLimit (has .core, .search, etc.)
             # - rate_limit_data.resources.core = Rate (has .remaining, .reset)
             remaining = rate_limit_data.resources.core.remaining
+            limit = rate_limit_data.resources.core.limit
             reset_time = rate_limit_data.resources.core.reset
 
-            print(f"Rate limit check: {remaining} calls remaining, resets at {reset_time.strftime('%I:%M %p')}")
+            # Show authentication status
+            auth_status = "AUTHENTICATED" if self.token else "UNAUTHENTICATED"
+            print(f"Rate limit check [{auth_status}]: {remaining}/{limit} calls remaining, resets at {reset_time.strftime('%I:%M %p')}")
 
             if remaining < required_calls:
                 return {
@@ -160,7 +170,9 @@ class GitHubService:
 
             for issue in issues:
                 # Skip pull requests (they have their own table)
-                if issue.pull_request:
+                # CRITICAL: Use raw_data to avoid triggering lazy load API call
+                # Accessing issue.pull_request makes a hidden API call per issue!
+                if hasattr(issue, '_rawData') and issue._rawData.get('pull_request'):
                     continue
 
                 fetched_count += 1
