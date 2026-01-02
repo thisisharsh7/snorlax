@@ -1,5 +1,5 @@
 """
-FastAPI backend for Code Q&A platform.
+FastAPI backend for GitHub Issue Triage Assistant.
 Main application entry point.
 """
 
@@ -17,8 +17,8 @@ load_settings_from_db()
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Code Q&A API",
-    description="AI-powered code understanding platform",
+    title="Issue Triage API",
+    description="AI-powered GitHub issue triage and management platform",
     version="1.0.0"
 )
 
@@ -43,7 +43,7 @@ app.include_router(categorization.router)
 async def root():
     """Root endpoint."""
     return {
-        "message": "Code Q&A API",
+        "message": "Issue Triage API",
         "version": "1.0.0",
         "endpoints": {
             "health": "/health",
@@ -51,6 +51,7 @@ async def root():
             "repositories": "/api/repositories",
             "github": "/api/github",
             "settings": "/api/settings",
+            "triage": "/api/triage",
             "categorization": "/api/categorize-issues"
         }
     }
@@ -73,6 +74,6 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting Code Q&A API server...")
+    print("Starting Issue Triage API server...")
     print("API docs available at: http://localhost:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)
