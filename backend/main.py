@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from utils.database import get_db_connection, load_settings_from_db
-from api import repositories, github, settings, categorization
+from api import repositories, github, settings, categorization, triage
 
 load_dotenv()
 
@@ -36,6 +36,7 @@ app.include_router(repositories.router)
 app.include_router(github.router)
 app.include_router(settings.router)
 app.include_router(categorization.router)
+app.include_router(triage.router)
 
 
 # Root endpoints

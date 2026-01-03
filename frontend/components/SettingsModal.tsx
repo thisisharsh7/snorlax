@@ -8,10 +8,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [aiProvider, setAiProvider] = useState('anthropic')
   const [anthropicKey, setAnthropicKey] = useState('')
-  const [openaiKey, setOpenaiKey] = useState('')
-  const [openrouterKey, setOpenrouterKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
@@ -28,12 +25,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       const res = await fetch('http://localhost:8000/api/settings')
       if (res.ok) {
         const data = await res.json()
-        // Load AI provider
-        setAiProvider(data.ai_provider || 'anthropic')
         // Show masked versions
         setAnthropicKey(data.anthropic_key_set ? '••••••••••••••••' : '')
-        setOpenaiKey(data.openai_key_set ? '••••••••••••••••' : '')
-        setOpenrouterKey(data.openrouter_key_set ? '••••••••••••••••' : '')
         setGithubToken(data.github_token_set ? '••••••••••••••••' : '')
       }
     } catch (e) {
@@ -57,10 +50,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ai_provider: aiProvider,
+          ai_provider: 'anthropic',
           anthropic_api_key: processKey(anthropicKey),
-          openai_api_key: processKey(openaiKey),
-          openrouter_api_key: processKey(openrouterKey),
           github_token: processKey(githubToken)
         })
       })
@@ -89,10 +80,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="flex justify-between items-center mb-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              API Settings
+              Settings
             </h2>
             <p className="text-gray-600 dark:text-gray-400 text-xs mt-0.5">
-              Configure only the integrations you need. All keys are optional.
+              Configure API keys for AI-powered triage features.
             </p>
           </div>
           <button
@@ -104,140 +95,48 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         <div className="space-y-3">
-          {/* AI Provider Selection */}
+          {/* Anthropic API Key */}
           <div>
-            <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 block">
-              AI Provider <span className="font-normal text-gray-500">(Optional)</span>
-            </label>
-            <div className="relative">
-              <select
-                value={aiProvider}
-                onChange={(e) => setAiProvider(e.target.value)}
-                className="w-full pl-2.5 pr-9 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-xs appearance-none cursor-pointer"
+            <div className="flex items-center gap-1 mb-1">
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Anthropic API Key <span className="font-normal text-gray-500">(Optional)</span>
+              </label>
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                title="Get your Anthropic API key"
               >
-                <option value="anthropic">Anthropic Claude (Recommended)</option>
-                <option value="openai">OpenAI GPT</option>
-                <option value="openrouter">OpenRouter (Multiple Models)</option>
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none">
-                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                 </svg>
-              </div>
+              </a>
             </div>
+            <input
+              type="password"
+              value={anthropicKey}
+              onChange={(e) => setAnthropicKey(e.target.value)}
+              placeholder="sk-ant-..."
+              className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
+            />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Not needed for browsing issues.
+              Required for AI-powered issue triage and categorization. Claude Sonnet 4.5 • 200K context
             </p>
           </div>
-
-          {/* Anthropic API Key */}
-          {aiProvider === 'anthropic' && (
-            <div>
-              <div className="flex items-center gap-1 mb-1">
-                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Anthropic API Key
-                </label>
-                <a
-                  href="https://console.anthropic.com/settings/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                  title="Get your Anthropic API key"
-                >
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </a>
-              </div>
-              <input
-                type="password"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                placeholder="sk-ant-..."
-                className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Claude Sonnet 4.5 • Best for code • 200K context
-              </p>
-            </div>
-          )}
-
-          {/* OpenAI API Key */}
-          {aiProvider === 'openai' && (
-            <div>
-              <div className="flex items-center gap-1 mb-1">
-                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  OpenAI API Key
-                </label>
-                <a
-                  href="https://platform.openai.com/api-keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                  title="Get your OpenAI API key"
-                >
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </a>
-              </div>
-              <input
-                type="password"
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-                placeholder="sk-..."
-                className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                GPT-4 • 128K context
-              </p>
-            </div>
-          )}
-
-          {/* OpenRouter API Key */}
-          {aiProvider === 'openrouter' && (
-            <div>
-              <div className="flex items-center gap-1 mb-1">
-                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  OpenRouter API Key
-                </label>
-                <a
-                  href="https://openrouter.ai/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                  title="Get your OpenRouter API key"
-                >
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </a>
-              </div>
-              <input
-                type="password"
-                value={openrouterKey}
-                onChange={(e) => setOpenrouterKey(e.target.value)}
-                placeholder="sk-or-v1-..."
-                className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Multiple models: Claude, GPT-4, Gemini, and more
-              </p>
-            </div>
-          )}
 
           {/* GitHub Token */}
           <div>
             <div className="flex items-center gap-1 mb-1">
               <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                GitHub Fine-Grained Token <span className="font-normal text-gray-500">(Optional)</span>
+                GitHub Personal Access Token <span className="font-normal text-gray-500">(Optional)</span>
               </label>
               <a
                 href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                title="Create a fine-grained token"
+                title="Create a personal access token"
               >
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -252,7 +151,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              For syncing issues and PRs. Read-only permissions recommended.{' '}
+              For syncing issues and PRs. Increases rate limit from 60 to 5,000 requests/hour.{' '}
               <a
                 href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
@@ -292,7 +191,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
             </svg>
             <p>
-              Keys are encrypted and never exposed to the frontend.
+              Keys are encrypted and stored securely. Never exposed to the frontend.
             </p>
           </div>
         </div>

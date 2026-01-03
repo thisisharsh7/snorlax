@@ -12,17 +12,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from models.repository import IndexRequest, IndexResponse, StatusResponse, Repository
-from models.query import QueryRequest, QueryResponse, Source
 from utils.database import get_db_connection, extract_repo_name, update_repository_status
 from services.repo_cloner import RepoCloner
-from services.query_service import QueryService
 from flows import create_flow_for_project
 
 router = APIRouter(prefix="/api", tags=["repositories"])
 
 # Initialize services
 repo_cloner = RepoCloner(data_dir=os.getenv("DATA_DIR", "./data"))
-query_service = QueryService()
 
 
 def index_repository(project_id: str, github_url: str):
@@ -503,55 +500,3 @@ async def get_status(project_id: str):
         )
 
 
-@router.post("/query/{project_id}", response_model=QueryResponse)
-async def query_project(project_id: str, request: QueryRequest):
-    """
-    Ask a question about the indexed code.
-
-    Args:
-        project_id: Project identifier
-        request: QueryRequest with question
-
-    Returns:
-        QueryResponse with answer and sources
-    """
-    # Check if repository exists and is indexed
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT status FROM repositories WHERE project_id = %s",
-            (project_id,)
-        )
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if not result:
-            raise HTTPException(status_code=404, detail="Repository not found")
-
-        if result[0] != "indexed":
-            raise HTTPException(
-                status_code=400,
-                detail=f"Repository is not ready yet. Current status: {result[0]}"
-            )
-
-        # Execute query with mode
-        result = query_service.query(project_id, request.question, mode=request.mode)
-
-        return QueryResponse(
-            answer=result["answer"],
-            sources=[Source(**source) for source in result["sources"]],
-            mode=result.get("mode", "full"),
-            has_llm_answer=result.get("has_llm_answer", True),
-            llm_error=result.get("llm_error"),
-            search_message=result.get("search_message")
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Query failed: {str(e)}"
-        )

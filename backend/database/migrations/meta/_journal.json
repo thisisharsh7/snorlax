@@ -57,6 +57,13 @@
       "when": 1735689600000,
       "tag": "0007_add_etag_support",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "1",
+      "when": 1735866000000,
+      "tag": "0008_add_triage_categories",
+      "breakpoints": true
     }
   ]
 }

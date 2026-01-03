@@ -29,6 +29,27 @@ class IssueCategorizationService:
     THEME_MIN_THRESHOLD = 0.60
     THEME_MAX_THRESHOLD = 0.84
 
+    # Triage detection keywords and patterns
+    CRITICAL_KEYWORDS = [
+        "security", "vulnerability", "exploit", "breach", "cve",
+        "crash", "crashes", "crashing", "hang", "freeze", "segfault",
+        "breaking", "broken", "blocks", "blocker",
+        "production", "urgent", "critical", "emergency",
+        "data loss", "corruption", "failure", "down"
+    ]
+
+    CRITICAL_LABELS = ["critical", "security", "blocker", "urgent", "p0", "high priority"]
+
+    BUG_KEYWORDS = [
+        "bug", "broken", "doesn't work", "not working", "fails", "error",
+        "issue", "problem", "wrong", "incorrect", "unexpected"
+    ]
+
+    FEATURE_KEYWORDS = [
+        "add", "support", "implement", "allow", "enable", "feature",
+        "enhancement", "improvement", "would be nice", "can we have"
+    ]
+
     def __init__(self):
         """Initialize service with dependencies."""
         self.db_pool = ConnectionPool(os.getenv("APP_DATABASE_URL"))
@@ -503,3 +524,441 @@ Return only the comment text, no markdown code blocks."""
 
         except Exception as e:
             return f"Error generating comment: {e}"
+
+    def _find_relevant_docs(self, project_id: str, issue_number: int) -> List[Dict]:
+        """
+        Find relevant documentation files using CocoIndex semantic search.
+
+        Args:
+            project_id: Project identifier
+            issue_number: Issue number
+
+        Returns:
+            List of documentation file matches
+        """
+        # Search in codebase with broader threshold
+        code_matches = self.embedding_service.search_in_codebase(
+            project_id, issue_number,
+            limit=20,
+            min_similarity=0.60
+        )
+
+        # Filter for documentation files
+        doc_patterns = ['.md', '.rst', 'readme', 'docs/', 'documentation', 'doc/', '.txt']
+        doc_matches = [
+            m for m in code_matches
+            if any(pattern in m['filename'].lower() for pattern in doc_patterns)
+        ]
+
+        return doc_matches[:5]  # Top 5 docs
+
+    def _generate_suggested_responses(
+        self,
+        issue: Dict,
+        primary_category: str,
+        duplicate_of: Optional[int],
+        related_prs: List[int],
+        doc_links: List[Dict]
+    ) -> List[Dict]:
+        """
+        Generate 2-3 actionable response templates based on triage analysis.
+
+        Args:
+            issue: Issue details
+            primary_category: Primary triage category
+            duplicate_of: Duplicate issue number if found
+            related_prs: Related PR numbers
+            doc_links: Related documentation links
+
+        Returns:
+            List of suggested responses with actions
+        """
+        responses = []
+
+        # Response for duplicates
+        if duplicate_of:
+            responses.append({
+                "type": "close_duplicate",
+                "title": f"Close as duplicate of #{duplicate_of}",
+                "body": f"Thanks for reporting! This appears to be a duplicate of #{duplicate_of}. "
+                       f"Please follow that issue for updates.",
+                "actions": ["comment", "close", "add_label:duplicate"]
+            })
+
+        # Response for providing documentation
+        if doc_links:
+            doc_list = "\n".join([
+                f"- [{doc['filename']}]({doc['filename']})" for doc in doc_links[:3]
+            ])
+            responses.append({
+                "type": "provide_docs",
+                "title": "Provide documentation links",
+                "body": f"Thanks for your interest! You might find these resources helpful:\n\n{doc_list}\n\n"
+                       f"Let us know if you have any questions!",
+                "actions": ["comment"]
+            })
+
+        # Response for related PRs
+        if related_prs:
+            pr_list = ", ".join([f"#{pr}" for pr in related_prs[:3]])
+            responses.append({
+                "type": "link_prs",
+                "title": "Link related PRs",
+                "body": f"This may be related to {pr_list}. Please check if those PRs address your issue.",
+                "actions": ["comment"]
+            })
+
+        # Response for critical issues
+        if primary_category == "critical":
+            responses.append({
+                "type": "escalate_critical",
+                "title": "Escalate as critical",
+                "body": "Thanks for reporting this critical issue. We're escalating this to the team for immediate attention.",
+                "actions": ["comment", "add_label:critical", "add_label:urgent"]
+            })
+
+        # Response for bugs
+        if primary_category == "bug":
+            responses.append({
+                "type": "acknowledge_bug",
+                "title": "Acknowledge bug",
+                "body": "Thanks for the bug report! We've confirmed this is a bug and will work on a fix. "
+                       "We'll update this issue as we make progress.",
+                "actions": ["comment", "add_label:bug", "add_label:confirmed"]
+            })
+
+        # Response for feature requests
+        if primary_category == "feature_request":
+            responses.append({
+                "type": "acknowledge_feature",
+                "title": "Acknowledge feature request",
+                "body": "Thanks for the feature request! We'll consider this for a future release. "
+                       "Feel free to contribute a PR if you'd like to help implement it!",
+                "actions": ["comment", "add_label:enhancement"]
+            })
+
+        # Response for questions
+        if primary_category == "question":
+            responses.append({
+                "type": "answer_question",
+                "title": "Answer question",
+                "body": "Thanks for your question! [Add your answer here]\n\n"
+                       "Let us know if this helps or if you need more clarification.",
+                "actions": ["comment", "add_label:question"]
+            })
+
+        # Response for low priority
+        if primary_category == "low_priority":
+            responses.append({
+                "type": "close_low_priority",
+                "title": "Close as low priority",
+                "body": "Thanks for the report. This appears to be a very minor issue or lacks sufficient detail. "
+                       "Please provide more information if this is a significant problem.",
+                "actions": ["comment", "close", "add_label:wontfix"]
+            })
+
+        return responses[:3]  # Max 3 suggestions
+
+    def _triage_with_claude(
+        self,
+        issue: Dict,
+        similar_issues: List[Dict],
+        similar_prs: List[Dict],
+        code_matches: List[Dict],
+        doc_links: List[Dict]
+    ) -> Dict[str, Any]:
+        """
+        Use Claude to perform triage analysis with enhanced prompts.
+
+        Args:
+            issue: Issue details
+            similar_issues: Similar issues from semantic search
+            similar_prs: Similar PRs from semantic search
+            code_matches: Code matches from CocoIndex
+            doc_links: Documentation links
+
+        Returns:
+            Triage analysis with primary_category, confidence, and recommendations
+        """
+        if not self.claude_client:
+            return {"error": "Claude API key not configured"}
+
+        # Get issue labels for critical detection
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT labels
+                    FROM github_issues
+                    WHERE project_id = %s AND issue_number = %s
+                """, (issue.get('project_id', ''), issue['issue_number']))
+                result = cur.fetchone()
+                labels = result[0] if result and result[0] else []
+
+        prompt = f"""You are triaging GitHub issue #{issue['issue_number']}: "{issue['title']}"
+
+Issue Description:
+{issue['body'] or 'No description provided'}
+
+Labels: {', '.join(labels) if labels else 'None'}
+
+## Semantic Search Results:
+
+**Similar Issues:**
+{self._format_similar_issues(similar_issues)}
+
+**Related Pull Requests:**
+{self._format_similar_prs(similar_prs)}
+
+**Related Code:**
+{self._format_code_matches(code_matches)}
+
+**Related Documentation:**
+{self._format_code_matches(doc_links)}
+
+---
+
+## Your Task: Triage Categorization
+
+Analyze this issue and assign ONE primary category:
+
+### 1. CRITICAL
+High priority issues requiring immediate attention:
+- Security vulnerabilities, exploits, breaches
+- Crashes, segfaults, data loss, corruption
+- Breaking changes, production blockers
+- Keywords: {', '.join(self.CRITICAL_KEYWORDS[:10])}
+
+### 2. BUG
+Confirmed bugs - something that SHOULD work but DOESN'T:
+- Has error messages or stack traces
+- Describes unexpected behavior
+- Uses verbs: "fix", "broken", "doesn't work", "fails"
+- NOT feature requests in disguise
+
+### 3. FEATURE_REQUEST
+New feature requests - something that doesn't exist yet:
+- Describes something NEW to add
+- Uses phrases: "add", "support", "implement", "allow", "it would be nice if"
+- Enhancement or improvement proposals
+
+### 4. QUESTION
+User questions about usage or behavior:
+- Starts with "How do I...", "Why does...", "What is..."
+- Ends with "?"
+- Seeking clarification or guidance
+- May be answered with documentation
+
+### 5. LOW_PRIORITY
+Spam, unclear, or very minor issues:
+- Lacks sufficient detail
+- Very minor cosmetic issues
+- Spam or off-topic
+- Duplicate with no additional information
+
+---
+
+## Detection Guidelines:
+
+**Critical Detection:**
+- Check for critical keywords in title/body
+- Check for critical labels
+- Assess severity from description
+
+**Bug vs Feature:**
+- Bugs describe BROKEN behavior (what should work but doesn't)
+- Features describe NEW behavior (what doesn't exist yet)
+- "It crashes when..." = Bug
+- "It would be nice to have..." = Feature
+
+**Question Detection:**
+- Question marks, especially at end
+- Question words: how, why, what, when, where
+- "Can someone explain..."
+
+**Duplicate Detection:**
+- Check similar_issues >85% similarity
+- Is it essentially the same issue?
+
+Return JSON:
+{{
+  "primary_category": "critical|bug|feature_request|question|low_priority",
+  "confidence": 0.95,  // 0.0-1.0
+  "reasoning": "Detailed explanation...",
+  "duplicate_of": 123,  // Issue number if duplicate, null otherwise
+  "related_prs": [45, 67],  // Related PR numbers
+  "priority_score": 85,  // 0-100, higher = more urgent
+  "needs_response": true,  // Whether this needs human response
+  "tags": ["security", "urgent"]  // Additional tags
+}}
+
+**IMPORTANT:**
+- Choose ONLY ONE primary category
+- Be decisive - avoid ambiguity
+- Reference specific evidence from the search results
+- If >85% similar to existing issue, note duplicate_of
+- Return ONLY valid JSON, no markdown"""
+
+        try:
+            message = self.claude_client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = message.content[0].text
+            # Remove markdown code blocks if present
+            if response_text.startswith("```json"):
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif response_text.startswith("```"):
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+
+            return json.loads(response_text)
+
+        except Exception as e:
+            print(f"Error in triage analysis: {e}")
+            return {"error": str(e)}
+
+    def triage_issue(self, project_id: str, issue_number: int) -> Dict[str, Any]:
+        """
+        Triage a single issue for the dashboard with enhanced analysis.
+
+        This method performs comprehensive triage including:
+        - Primary categorization (critical, bug, feature_request, question, low_priority)
+        - Duplicate detection
+        - Related PR identification
+        - Documentation linking
+        - Suggested response generation
+
+        Args:
+            project_id: Project identifier
+            issue_number: Issue number
+
+        Returns:
+            Triage results with:
+            - primary_category: str
+            - confidence: float (0.0-1.0)
+            - duplicate_of: Optional[int]
+            - related_prs: List[int]
+            - doc_links: List[Dict]
+            - suggested_responses: List[Dict]
+            - priority_score: int (0-100)
+            - needs_response: bool
+        """
+        # 1. Ensure issue has embedding
+        self.embedding_service.generate_issue_embedding(project_id, issue_number)
+
+        # 2. Get issue details
+        issue = self._get_issue_details(project_id, issue_number)
+        if not issue:
+            return {"error": "Issue not found"}
+
+        issue['project_id'] = project_id  # Add for context
+
+        # 3. Run all similarity searches
+        # Find potential duplicates (>85%)
+        similar_issues = self.embedding_service.search_similar_issues(
+            project_id, issue_number,
+            limit=10,
+            min_similarity=self.DUPLICATE_THRESHOLD
+        )
+
+        # Find related PRs (>75%)
+        similar_prs = self.embedding_service.search_similar_prs(
+            project_id, issue_number,
+            limit=10,
+            min_similarity=self.FIXED_IN_PR_THRESHOLD
+        )
+
+        # Search codebase (>75%)
+        code_matches = self.embedding_service.search_in_codebase(
+            project_id, issue_number,
+            limit=10,
+            min_similarity=self.IMPLEMENTED_THRESHOLD
+        )
+
+        # Find relevant documentation
+        doc_links = self._find_relevant_docs(project_id, issue_number)
+
+        # 4. Run Claude triage analysis
+        analysis = self._triage_with_claude(
+            issue, similar_issues, similar_prs, code_matches, doc_links
+        )
+
+        if "error" in analysis:
+            return analysis
+
+        # 5. Generate suggested responses
+        suggested_responses = self._generate_suggested_responses(
+            issue,
+            analysis.get('primary_category'),
+            analysis.get('duplicate_of'),
+            analysis.get('related_prs', []),
+            doc_links
+        )
+
+        # 6. Store triage results in database
+        self._store_triage_results(project_id, issue_number, analysis, doc_links)
+
+        # 7. Return comprehensive triage results
+        return {
+            "issue_number": issue_number,
+            "title": issue['title'],
+            "primary_category": analysis.get('primary_category'),
+            "confidence": analysis.get('confidence'),
+            "reasoning": analysis.get('reasoning'),
+            "duplicate_of": analysis.get('duplicate_of'),
+            "related_prs": analysis.get('related_prs', []),
+            "doc_links": [
+                {
+                    "file": doc['filename'],
+                    "line": doc.get('start_line'),
+                    "similarity": doc['similarity']
+                }
+                for doc in doc_links
+            ],
+            "suggested_responses": suggested_responses,
+            "priority_score": analysis.get('priority_score', 0),
+            "needs_response": analysis.get('needs_response', False),
+            "tags": analysis.get('tags', [])
+        }
+
+    def _store_triage_results(
+        self,
+        project_id: str,
+        issue_number: int,
+        analysis: Dict,
+        doc_links: List[Dict]
+    ):
+        """Store triage results in database."""
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                # Delete existing triage category for this issue
+                cur.execute("""
+                    DELETE FROM issue_categories
+                    WHERE project_id = %s
+                      AND issue_number = %s
+                      AND category IN ('critical', 'bug', 'feature_request', 'question', 'low_priority')
+                """, (project_id, issue_number))
+
+                # Insert triage category
+                doc_file_paths = [doc['filename'] for doc in doc_links]
+
+                cur.execute("""
+                    INSERT INTO issue_categories
+                    (project_id, issue_number, category, confidence, reasoning,
+                     related_issues, related_prs, priority_score, needs_response, doc_links)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    project_id,
+                    issue_number,
+                    analysis.get('primary_category'),
+                    analysis.get('confidence'),
+                    analysis.get('reasoning'),
+                    [analysis.get('duplicate_of')] if analysis.get('duplicate_of') else [],
+                    analysis.get('related_prs', []),
+                    analysis.get('priority_score', 0),
+                    analysis.get('needs_response', False),
+                    doc_file_paths
+                ))
+
+                conn.commit()

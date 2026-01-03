@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
 import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
-import ChatPanel from '@/components/ChatPanel'
+import TriageDashboard from '@/components/TriageDashboard'
+import TriageModeModal from '@/components/TriageModeModal'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
 import { Github, Settings, Sun, Moon, RefreshCw } from 'lucide-react'
@@ -27,9 +28,9 @@ export default function Dashboard() {
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null)
   const [showIndexModal, setShowIndexModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showTriageModal, setShowTriageModal] = useState(false)
   const [repos, setRepos] = useState<Repository[]>([])
-  const [activeView, setActiveView] = useState<'chat' | 'issues'>('issues')
-  const [issuesView, setIssuesView] = useState<'basic' | 'categorized'>('basic')
+  const [issuesView, setIssuesView] = useState<'basic' | 'categorized' | 'triage'>('triage')
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showBanner, setShowBanner] = useState(true)
@@ -289,13 +290,12 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => {
                     if (selectedRepo.status === 'indexed') {
-                      setActiveView('issues')
                       setIssuesView('basic')
                     }
                   }}
                   disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    activeView === 'issues' && issuesView === 'basic'
+                    issuesView === 'basic'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
                       : selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -309,13 +309,12 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => {
                     if (selectedRepo.status === 'indexed') {
-                      setActiveView('issues')
                       setIssuesView('categorized')
                     }
                   }}
                   disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    activeView === 'issues' && issuesView === 'categorized'
+                    issuesView === 'categorized'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
                       : selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -327,10 +326,14 @@ export default function Dashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => selectedRepo.status === 'indexed' && setActiveView('chat')}
+                  onClick={() => {
+                    if (selectedRepo.status === 'indexed') {
+                      setIssuesView('triage')
+                    }
+                  }}
                   disabled={selectedRepo.status !== 'indexed'}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    activeView === 'chat'
+                    issuesView === 'triage'
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
                       : selectedRepo.status === 'indexed'
                       ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -338,7 +341,7 @@ export default function Dashboard() {
                   }`}
                   title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
                 >
-                  Code Q&A
+                  Triage Dashboard
                 </button>
               </div>
 
@@ -399,27 +402,27 @@ export default function Dashboard() {
 
           {/* Content */}
           {selectedRepo.status === 'indexed' ? (
-            activeView === 'issues' ? (
-              issuesView === 'basic' ? (
-                <IssuesPRsPanel
-                  projectId={selectedRepo.project_id}
-                  repoName={selectedRepo.repo_name}
-                  lastSyncedAt={selectedRepo.last_synced_at}
-                  onImport={loadRepositories}
-                  onOpenSettings={() => setShowSettingsModal(true)}
-                  onReindex={handleReindex}
-                />
-              ) : (
-                <CategorizedIssuesPanel
-                  projectId={selectedRepo.project_id}
-                  repoName={selectedRepo.repo_name}
-                />
-              )
-            ) : (
-              <ChatPanel
+            issuesView === 'basic' ? (
+              <IssuesPRsPanel
+                projectId={selectedRepo.project_id}
+                repoName={selectedRepo.repo_name}
+                lastSyncedAt={selectedRepo.last_synced_at}
+                onImport={loadRepositories}
+                onOpenSettings={() => setShowSettingsModal(true)}
+                onReindex={handleReindex}
+              />
+            ) : issuesView === 'categorized' ? (
+              <CategorizedIssuesPanel
                 projectId={selectedRepo.project_id}
                 repoName={selectedRepo.repo_name}
               />
+            ) : (
+              <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-6">
+                <TriageDashboard
+                  projectId={selectedRepo.project_id}
+                  onEnterTriageMode={() => setShowTriageModal(true)}
+                />
+              </div>
             )
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -480,6 +483,14 @@ export default function Dashboard() {
           checkSettings() // Refresh settings status when modal closes
         }}
       />
+
+      {selectedRepo && (
+        <TriageModeModal
+          projectId={selectedRepo.project_id}
+          isOpen={showTriageModal}
+          onClose={() => setShowTriageModal(false)}
+        />
+      )}
     </div>
   )
 }
