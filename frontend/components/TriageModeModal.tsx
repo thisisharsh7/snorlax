@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface Issue {
   issue_number: number
@@ -44,6 +44,15 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string 
   low_priority: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-300', label: '🗑️ Low Priority' }
 }
 
+function CategoryBadge({ category }: { category: string }) {
+  const colors = CATEGORY_COLORS[category] || { bg: 'bg-gray-100', text: 'text-gray-800', label: category }
+  return (
+    <span className={`px-3 py-1 rounded-full text-sm font-medium ${colors.bg} ${colors.text}`}>
+      {colors.label}
+    </span>
+  )
+}
+
 export default function TriageModeModal({ projectId, isOpen, onClose }: TriageModeModalProps) {
   const [issues, setIssues] = useState<Issue[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -51,22 +60,36 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
   const [loading, setLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [copiedResponse, setCopiedResponse] = useState<number | null>(null)
+  const [analyzedIssues, setAnalyzedIssues] = useState<Map<number, TriageAnalysis>>(new Map())
+  const [issueBodyExpanded, setIssueBodyExpanded] = useState(false)
+
+  // Refs for keyboard handler (to avoid stale closures)
+  const currentIndexRef = useRef(currentIndex)
+  const issuesRef = useRef(issues)
+  const analysisRef = useRef(analysis)
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    currentIndexRef.current = currentIndex
+  }, [currentIndex])
+
+  useEffect(() => {
+    issuesRef.current = issues
+  }, [issues])
+
+  useEffect(() => {
+    analysisRef.current = analysis
+  }, [analysis])
 
   // Load uncategorized issues
   useEffect(() => {
     if (isOpen) {
       loadUncategorizedIssues()
+      setAnalyzedIssues(new Map()) // Clear cache on open
     }
   }, [isOpen, projectId])
 
-  // Analyze current issue when index changes
-  useEffect(() => {
-    if (issues.length > 0 && currentIndex >= 0 && currentIndex < issues.length) {
-      analyzeCurrentIssue()
-    }
-  }, [currentIndex, issues])
-
-  // Keyboard shortcuts
+  // Keyboard shortcuts - FIXED: Only depends on isOpen
   useEffect(() => {
     if (!isOpen) return
 
@@ -76,6 +99,10 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
         return
       }
 
+      const index = currentIndexRef.current
+      const issuesList = issuesRef.current
+      const currentAnalysis = analysisRef.current
+
       switch (e.key) {
         case 'Escape':
           onClose()
@@ -83,31 +110,61 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
         case 'j':
         case 'ArrowDown':
           e.preventDefault()
-          nextIssue()
+          if (index < issuesList.length - 1) {
+            const nextIndex = index + 1
+            setCurrentIndex(nextIndex)
+            setAnalysis(null)
+            setIssueBodyExpanded(false)
+
+            // Check if next issue already analyzed
+            const nextIssueNumber = issuesList[nextIndex].issue_number
+            const cached = analyzedIssues.get(nextIssueNumber)
+            if (cached) {
+              setAnalysis(cached)
+            }
+          }
           break
         case 'k':
         case 'ArrowUp':
           e.preventDefault()
-          previousIssue()
+          if (index > 0) {
+            const prevIndex = index - 1
+            setCurrentIndex(prevIndex)
+            setAnalysis(null)
+            setIssueBodyExpanded(false)
+
+            // Check if previous issue already analyzed
+            const prevIssueNumber = issuesList[prevIndex].issue_number
+            const cached = analyzedIssues.get(prevIssueNumber)
+            if (cached) {
+              setAnalysis(cached)
+            }
+          }
           break
         case '1':
           e.preventDefault()
-          copyResponse(0)
+          if (currentAnalysis?.suggested_responses?.[0]) {
+            copyResponse(0)
+          }
           break
         case '2':
           e.preventDefault()
-          copyResponse(1)
+          if (currentAnalysis?.suggested_responses?.[1]) {
+            copyResponse(1)
+          }
           break
         case '3':
           e.preventDefault()
-          copyResponse(2)
+          if (currentAnalysis?.suggested_responses?.[2]) {
+            copyResponse(2)
+          }
           break
       }
     }
 
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [isOpen, currentIndex, issues, analysis])
+  }, [isOpen, analyzedIssues, onClose])
 
   async function loadUncategorizedIssues() {
     try {
@@ -121,6 +178,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       const data = await res.json()
       setIssues(data)
       setCurrentIndex(0)
+      setAnalysis(null)
     } catch (err) {
       console.error('Failed to load uncategorized issues:', err)
     } finally {
@@ -128,15 +186,23 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
     }
   }
 
-  async function analyzeCurrentIssue() {
+  async function handleAnalyzeClick() {
     if (!issues[currentIndex]) return
 
+    const issueNumber = issues[currentIndex].issue_number
+
+    // Check cache first
+    if (analyzedIssues.has(issueNumber)) {
+      setAnalysis(analyzedIssues.get(issueNumber)!)
+      return
+    }
+
+    // Run analysis
     try {
       setAnalyzing(true)
-      setAnalysis(null)
 
       const res = await fetch(
-        `http://localhost:8000/api/triage/analyze/${projectId}/${issues[currentIndex].issue_number}`,
+        `http://localhost:8000/api/triage/analyze/${projectId}/${issueNumber}`,
         { method: 'POST' }
       )
 
@@ -145,6 +211,9 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       }
 
       const data = await res.json()
+
+      // Cache result
+      setAnalyzedIssues(prev => new Map(prev).set(issueNumber, data))
       setAnalysis(data)
     } catch (err) {
       console.error('Failed to analyze issue:', err)
@@ -155,13 +224,31 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
 
   function nextIssue() {
     if (currentIndex < issues.length - 1) {
-      setCurrentIndex(currentIndex + 1)
+      const nextIndex = currentIndex + 1
+      setCurrentIndex(nextIndex)
+      setAnalysis(null)
+      setIssueBodyExpanded(false)
+
+      // Check if already analyzed
+      const nextIssueNumber = issues[nextIndex].issue_number
+      if (analyzedIssues.has(nextIssueNumber)) {
+        setAnalysis(analyzedIssues.get(nextIssueNumber)!)
+      }
     }
   }
 
   function previousIssue() {
     if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1)
+      const prevIndex = currentIndex - 1
+      setCurrentIndex(prevIndex)
+      setAnalysis(null)
+      setIssueBodyExpanded(false)
+
+      // Check if already analyzed
+      const prevIssueNumber = issues[prevIndex].issue_number
+      if (analyzedIssues.has(prevIssueNumber)) {
+        setAnalysis(analyzedIssues.get(prevIssueNumber)!)
+      }
     }
   }
 
@@ -184,117 +271,141 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
   const currentIssue = issues[currentIndex]
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-6">
-      <div className="bg-white dark:bg-gray-900 w-full h-full rounded-lg shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center">
+      <div className="bg-white dark:bg-gray-900 w-[95%] h-[95%] rounded-xl shadow-2xl flex flex-col">
         {/* Header */}
-        <div className="bg-gray-900 dark:bg-gray-950 text-white px-6 py-4 flex items-center justify-between border-b border-gray-700">
+        <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center rounded-t-xl">
+          <h2 className="text-xl font-bold">Triage Mode</h2>
           <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold">Triage Mode</h2>
             {issues.length > 0 && (
               <span className="text-sm text-gray-400">
                 Issue {currentIndex + 1} of {issues.length}
               </span>
             )}
+            <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">
+              ✕
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors text-2xl"
-          >
-            ×
-          </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">Loading issues...</p>
-              </div>
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">Loading issues...</p>
             </div>
-          ) : issues.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-6xl mb-4">🎉</div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                  All caught up!
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  No more issues to triage.
-                </p>
-                <button
-                  onClick={onClose}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Back to Dashboard
-                </button>
-              </div>
+          </div>
+        ) : issues.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-6xl mb-4">🎉</div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                All caught up!
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
+                No more issues to triage.
+              </p>
+              <button
+                onClick={onClose}
+                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Back to Dashboard
+              </button>
             </div>
-          ) : (
-            <div className="p-6 space-y-6">
-              {/* Issue Display */}
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700">
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+          </div>
+        ) : (
+          <>
+            {/* Two-column layout */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* LEFT: Issue Details */}
+              <div className="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-6">
+                <div className="mb-4">
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                     #{currentIssue.issue_number}: {currentIssue.title}
                   </h3>
+                  <div className="flex gap-2 text-sm text-gray-500">
+                    <span>State: {currentIssue.state}</span>
+                    <span>•</span>
+                    <span>Created: {new Date(currentIssue.created_at).toLocaleDateString()}</span>
+                  </div>
                 </div>
-                <div className="prose dark:prose-invert max-w-none text-sm text-gray-700 dark:text-gray-300">
-                  <pre className="whitespace-pre-wrap font-sans bg-white dark:bg-gray-900 p-4 rounded border border-gray-200 dark:border-gray-700">
-                    {currentIssue.body || 'No description provided'}
+
+                {/* Issue body with truncation */}
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                  <h4 className="font-semibold mb-2 text-gray-900 dark:text-white">Description</h4>
+                  <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans">
+                    {currentIssue.body
+                      ? (issueBodyExpanded
+                          ? currentIssue.body
+                          : currentIssue.body.substring(0, 500) + (currentIssue.body.length > 500 ? '...' : ''))
+                      : 'No description provided'}
                   </pre>
+                  {currentIssue.body && currentIssue.body.length > 500 && (
+                    <button
+                      onClick={() => setIssueBodyExpanded(!issueBodyExpanded)}
+                      className="mt-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    >
+                      {issueBodyExpanded ? 'Show Less' : 'Show More'}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* AI Analysis Section */}
-              {analyzing ? (
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-5 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center gap-3">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                    <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">
-                      Analyzing issue with Claude AI...
-                    </p>
-                  </div>
-                </div>
-              ) : analysis ? (
-                <div className="space-y-4">
-                  {/* Category Badge */}
-                  <div className="bg-white dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700">
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                      AI Analysis
-                    </h4>
-                    <div className="flex items-center gap-3 mb-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-sm font-medium ${
-                          CATEGORY_COLORS[analysis.primary_category]?.bg || 'bg-gray-100'
-                        } ${CATEGORY_COLORS[analysis.primary_category]?.text || 'text-gray-800'}`}
-                      >
-                        {CATEGORY_COLORS[analysis.primary_category]?.label || analysis.primary_category}
-                      </span>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                        Confidence: {Math.round(analysis.confidence * 100)}%
-                      </span>
-                      {analysis.priority_score > 0 && (
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          • Priority: {analysis.priority_score}/100
-                        </span>
-                      )}
+              {/* RIGHT: Analysis */}
+              <div className="w-1/2 overflow-y-auto p-6">
+                {!analysis ? (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="text-center mb-6">
+                      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                        Ready to analyze?
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        Click below to run AI analysis on this issue
+                      </p>
                     </div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
+                    <button
+                      onClick={handleAnalyzeClick}
+                      disabled={analyzing}
+                      className="bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {analyzing ? (
+                        <span className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                          Analyzing...
+                        </span>
+                      ) : (
+                        '🔍 Analyze with AI'
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Category & Confidence */}
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Analysis Results</h3>
+                      <div className="flex items-center gap-3 mb-2">
+                        <CategoryBadge category={analysis.primary_category} />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {Math.round((analysis.confidence || 0) * 100)}% confident
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
+                    </div>
 
-                    {/* Additional Info */}
-                    {(analysis.duplicate_of || analysis.related_prs.length > 0 || analysis.doc_links.length > 0) && (
-                      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                    {/* Related Info (compact) */}
+                    {(analysis.duplicate_of || analysis.related_prs?.length > 0) && (
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                        <h4 className="font-semibold text-sm mb-2 text-gray-900 dark:text-white">Related</h4>
                         {analysis.duplicate_of && (
-                          <div className="text-sm">
-                            <span className="font-medium text-gray-700 dark:text-gray-300">Duplicate of:</span>{' '}
+                          <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                            <span className="font-medium">Duplicate of:</span>{' '}
                             <span className="text-blue-600 dark:text-blue-400">#{analysis.duplicate_of}</span>
                           </div>
                         )}
-                        {analysis.related_prs.length > 0 && (
-                          <div className="text-sm">
-                            <span className="font-medium text-gray-700 dark:text-gray-300">Related PRs:</span>{' '}
+                        {analysis.related_prs?.length > 0 && (
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="font-medium">Related PRs:</span>{' '}
                             {analysis.related_prs.map((pr, i) => (
                               <span key={pr}>
                                 <span className="text-blue-600 dark:text-blue-400">#{pr}</span>
@@ -303,100 +414,68 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
                             ))}
                           </div>
                         )}
-                        {analysis.doc_links.length > 0 && (
-                          <div className="text-sm">
-                            <span className="font-medium text-gray-700 dark:text-gray-300">Related Docs:</span>
-                            <ul className="mt-1 ml-4 space-y-1">
-                              {analysis.doc_links.slice(0, 3).map((doc, i) => (
-                                <li key={i} className="text-blue-600 dark:text-blue-400 truncate">
-                                  {doc.file} ({Math.round(doc.similarity * 100)}% match)
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                      </div>
+                    )}
+
+                    {/* Suggested Responses */}
+                    {analysis.suggested_responses?.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Suggested Responses</h4>
+                        <div className="space-y-3">
+                          {analysis.suggested_responses.map((response, index) => (
+                            <div key={index} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="font-medium text-sm text-gray-900 dark:text-white">{response.title}</span>
+                                <button
+                                  onClick={() => copyResponse(index)}
+                                  className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                                >
+                                  {copiedResponse === index ? (
+                                    <>✓ Copied</>
+                                  ) : (
+                                    <><kbd className="kbd">{index + 1}</kbd> Copy</>
+                                  )}
+                                </button>
+                              </div>
+                              <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans">
+                                {response.body}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+            </div>
 
-                  {/* Suggested Responses */}
-                  {analysis.suggested_responses.length > 0 && (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700">
-                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                        Suggested Responses
-                      </h4>
-                      <div className="space-y-3">
-                        {analysis.suggested_responses.map((response, index) => (
-                          <div
-                            key={index}
-                            className="bg-gray-50 dark:bg-gray-900 p-4 rounded border border-gray-200 dark:border-gray-700"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div>
-                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                                  {index + 1}.
-                                </span>{' '}
-                                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                  {response.title}
-                                </span>
-                              </div>
-                              <button
-                                onClick={() => copyResponse(index)}
-                                className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition-colors"
-                              >
-                                {copiedResponse === index ? '✓ Copied' : 'Copy'}
-                              </button>
-                            </div>
-                            <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans">
-                              {response.body}
-                            </pre>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {response.actions.map((action, i) => (
-                                <span
-                                  key={i}
-                                  className="text-xs px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
-                                >
-                                  {action}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : null}
+            {/* Footer: Navigation & Shortcuts */}
+            <div className="bg-gray-50 dark:bg-gray-800 px-6 py-4 flex justify-between items-center rounded-b-xl border-t border-gray-200 dark:border-gray-700">
+              <div className="flex gap-3 text-xs text-gray-600 dark:text-gray-400">
+                <span><kbd className="kbd">J</kbd> / <kbd className="kbd">K</kbd> Next/Prev</span>
+                <span><kbd className="kbd">1</kbd><kbd className="kbd">2</kbd><kbd className="kbd">3</kbd> Copy</span>
+                <span><kbd className="kbd">Esc</kbd> Exit</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={previousIssue}
+                  disabled={currentIndex === 0}
+                  className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                >
+                  ← Previous
+                </button>
+                <button
+                  onClick={nextIssue}
+                  disabled={currentIndex === issues.length - 1}
+                  className="px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md text-sm font-medium disabled:opacity-50 hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
             </div>
-          )}
-        </div>
-
-        {/* Footer with Keyboard Shortcuts */}
-        <div className="bg-gray-100 dark:bg-gray-800 px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
-            <div className="flex items-center gap-6">
-              <span><kbd className="kbd">J</kbd> / <kbd className="kbd">K</kbd> Next/Prev</span>
-              <span><kbd className="kbd">1</kbd>/<kbd className="kbd">2</kbd>/<kbd className="kbd">3</kbd> Copy response</span>
-              <span><kbd className="kbd">Esc</kbd> Exit</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={previousIssue}
-                disabled={currentIndex === 0}
-                className="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded disabled:opacity-50 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-              >
-                ← Previous
-              </button>
-              <button
-                onClick={nextIssue}
-                disabled={currentIndex >= issues.length - 1}
-                className="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded disabled:opacity-50 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-              >
-                Next →
-              </button>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <style jsx>{`
