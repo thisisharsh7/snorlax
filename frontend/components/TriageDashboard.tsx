@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
   issue_number: number
@@ -131,7 +132,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
       setLoading(true)
       setError(null)
 
-      const res = await fetch(`http://localhost:8000/api/triage/dashboard/${projectId}`)
+      const res = await fetch(API_ENDPOINTS.triageDashboard(projectId))
 
       if (!res.ok) {
         throw new Error('Failed to load dashboard data')

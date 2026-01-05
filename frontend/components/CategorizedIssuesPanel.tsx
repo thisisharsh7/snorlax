@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface Category {
   category: string
@@ -54,7 +55,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   async function loadCategorizedIssues() {
     setLoading(true)
     try {
-      const res = await fetch(`http://localhost:8000/api/categorized-issues/${projectId}`)
+      const res = await fetch(API_ENDPOINTS.categorizedIssues(projectId))
       if (!res.ok) throw new Error('Failed to load issues')
       const data = await res.json()
       setIssues(data.issues || [])
@@ -67,7 +68,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
 
   async function loadStats() {
     try {
-      const res = await fetch(`http://localhost:8000/api/category-stats/${projectId}`)
+      const res = await fetch(API_ENDPOINTS.categoryStats(projectId))
       if (!res.ok) return
       const data = await res.json()
       setStats(data)
@@ -79,7 +80,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   async function handleCategorizeAll() {
     setCategorizing(true)
     try {
-      const res = await fetch(`http://localhost:8000/api/categorize-issues/${projectId}`, {
+      const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to start categorization')
@@ -100,7 +101,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
     setGeneratedComment(null)
     try {
       const res = await fetch(
-        `http://localhost:8000/api/generate-comment/${projectId}/${issue.issue_number}?category=${issue.category}`,
+        API_ENDPOINTS.generateComment(projectId, issue.issue_number, issue.category),
         { method: 'POST' }
       )
       if (!res.ok) throw new Error('Failed to generate comment')

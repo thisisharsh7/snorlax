@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
   number: number
@@ -70,7 +69,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
   async function checkGithubToken() {
     try {
-      const res = await fetch(API_ENDPOINTS.settings())
+      const res = await fetch('http://localhost:8000/api/settings')
       const data = await res.json()
       setHasGithubToken(data.github_token_set)
     } catch (e) {
@@ -83,7 +82,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setError(null)
     try {
       const stateParam = issueFilter === 'all' ? '' : `?state=${issueFilter}`
-      const res = await fetch(`${API_ENDPOINTS.githubIssues(projectId)}${stateParam}`)
+      const res = await fetch(`http://localhost:8000/api/github/issues/${projectId}${stateParam}`)
 
       if (!res.ok) {
         const data = await res.json()
@@ -105,7 +104,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setError(null)
     try {
       const stateParam = prFilter === 'all' ? '' : `?state=${prFilter}`
-      const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`)
+      const res = await fetch(`http://localhost:8000/api/github/prs/${projectId}${stateParam}`)
 
       if (!res.ok) {
         const data = await res.json()
@@ -135,10 +134,10 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     try {
       // Import both issues and PRs
       const [issuesRes, prsRes] = await Promise.all([
-        fetch(API_ENDPOINTS.importIssues(projectId), {
+        fetch(`http://localhost:8000/api/github/import-issues/${projectId}`, {
           method: 'POST'
         }),
-        fetch(API_ENDPOINTS.importPRs(projectId), {
+        fetch(`http://localhost:8000/api/github/import-prs/${projectId}`, {
           method: 'POST'
         })
       ])

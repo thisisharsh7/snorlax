@@ -16,6 +16,10 @@ router = APIRouter(prefix="/api/triage", tags=["triage"])
 # Initialize categorization service
 categorization_service = IssueCategorizationService()
 
+# In-memory batch triage status tracking
+# Format: { project_id: { status, total, processed, current_issue, errors, start_time } }
+batch_triage_status: Dict[str, Dict[str, Any]] = {}
+
 
 def batch_triage_issues_task(project_id: str):
     """
@@ -24,6 +28,8 @@ def batch_triage_issues_task(project_id: str):
     Args:
         project_id: Project identifier
     """
+    from datetime import datetime
+
     try:
         logger.info(f"[{project_id}] Starting batch triage")
 
@@ -50,18 +56,59 @@ def batch_triage_issues_task(project_id: str):
 
         logger.info(f"[{project_id}] Found {len(issue_numbers)} issues to triage")
 
+        # Initialize status tracking
+        batch_triage_status[project_id] = {
+            "status": "running",
+            "total": len(issue_numbers),
+            "processed": 0,
+            "current_issue": None,
+            "errors": [],
+            "start_time": datetime.now().isoformat()
+        }
+
         # Triage each issue
         for i, issue_number in enumerate(issue_numbers, 1):
             try:
+                # Update current issue in status
+                batch_triage_status[project_id]["current_issue"] = issue_number
+
                 logger.info(f"[{project_id}] Triaging issue #{issue_number} ({i}/{len(issue_numbers)})")
                 categorization_service.triage_issue(project_id, issue_number)
+
+                # Update processed count
+                batch_triage_status[project_id]["processed"] = i
+
             except Exception as e:
                 logger.error(f"[{project_id}] Failed to triage issue #{issue_number}: {e}")
+                batch_triage_status[project_id]["errors"].append({
+                    "issue_number": issue_number,
+                    "error": str(e)
+                })
 
         logger.info(f"[{project_id}] Batch triage complete")
 
+        # Mark as completed
+        batch_triage_status[project_id]["status"] = "completed"
+        batch_triage_status[project_id]["current_issue"] = None
+
     except Exception as e:
         logger.error(f"[{project_id}] Batch triage failed: {e}")
+
+        # Mark as failed
+        if project_id in batch_triage_status:
+            batch_triage_status[project_id]["status"] = "failed"
+            batch_triage_status[project_id]["errors"].append({
+                "error": f"Batch triage failed: {str(e)}"
+            })
+        else:
+            batch_triage_status[project_id] = {
+                "status": "failed",
+                "total": 0,
+                "processed": 0,
+                "current_issue": None,
+                "errors": [{"error": f"Batch triage failed: {str(e)}"}],
+                "start_time": datetime.now().isoformat()
+            }
 
 
 @router.get("/dashboard/{project_id}")
@@ -343,6 +390,36 @@ async def batch_triage_issues(project_id: str, background_tasks: BackgroundTasks
             status_code=500,
             detail=f"Failed to start batch triage: {str(e)}"
         )
+
+
+@router.get("/batch-status/{project_id}")
+async def get_batch_triage_status(project_id: str):
+    """
+    Get the current status of batch triage operation for a project.
+
+    Args:
+        project_id: Project identifier
+
+    Returns:
+        Status information including:
+        - status: 'not_started' | 'running' | 'completed' | 'failed'
+        - total: Total number of issues to triage
+        - processed: Number of issues processed so far
+        - current_issue: Issue number currently being processed (null if not running)
+        - errors: List of errors encountered during triage
+        - start_time: ISO timestamp when batch started
+    """
+    if project_id not in batch_triage_status:
+        return {
+            "status": "not_started",
+            "total": 0,
+            "processed": 0,
+            "current_issue": None,
+            "errors": [],
+            "start_time": None
+        }
+
+    return batch_triage_status[project_id]
 
 
 @router.get("/issue/{project_id}/{issue_number}")

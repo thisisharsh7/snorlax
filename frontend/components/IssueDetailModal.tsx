@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface IssueDetail {
   issue_number: number
@@ -47,7 +48,7 @@ export default function IssueDetailModal({ projectId, issueNumber, onClose }: Pr
   async function loadIssueDetail() {
     setLoading(true)
     try {
-      const res = await fetch(`http://localhost:8000/api/github/issue-detail/${projectId}/${issueNumber}`)
+      const res = await fetch(API_ENDPOINTS.issueDetail(projectId, issueNumber))
       if (!res.ok) throw new Error('Failed to load issue detail')
 
       const data = await res.json()

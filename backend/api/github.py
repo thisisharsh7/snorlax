@@ -1,6 +1,7 @@
 """GitHub integration API endpoints."""
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from typing import Optional
 import os
 
@@ -228,4 +229,51 @@ async def get_github_prs(project_id: str, state: Optional[str] = None):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get PRs: {str(e)}"
+        )
+
+
+class PostCommentRequest(BaseModel):
+    """Request model for posting a comment."""
+    comment_body: str
+
+
+@router.post("/post-comment/{project_id}/{issue_number}")
+async def post_issue_comment(project_id: str, issue_number: int, request: PostCommentRequest):
+    """
+    Post a comment on a GitHub issue.
+
+    Args:
+        project_id: Repository identifier (owner/repo)
+        issue_number: Issue number
+        request: Request body containing comment text
+
+    Returns:
+        Comment information including URL and ID
+
+    Raises:
+        HTTPException: If GitHub token not configured or posting fails
+    """
+    try:
+        # Get GitHub service with current token
+        github_service = get_github_service()
+
+        # Post comment
+        result = github_service.post_issue_comment(
+            project_id=project_id,
+            issue_number=issue_number,
+            comment_body=request.comment_body
+        )
+
+        return result
+
+    except ValueError as e:
+        # Token not configured
+        raise HTTPException(
+            status_code=401,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to post comment: {str(e)}"
         )

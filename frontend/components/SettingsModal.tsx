@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -12,6 +13,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [githubToken, setGithubToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [showWebhookInstructions, setShowWebhookInstructions] = useState(false)
+  const [webhookCopied, setWebhookCopied] = useState(false)
 
   // Load existing keys on mount
   useEffect(() => {
@@ -22,7 +25,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   async function loadSettings() {
     try {
-      const res = await fetch('http://localhost:8000/api/settings')
+      const res = await fetch(API_ENDPOINTS.settings())
       if (res.ok) {
         const data = await res.json()
         // Show masked versions
@@ -32,6 +35,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     } catch (e) {
       console.error('Failed to load settings:', e)
     }
+  }
+
+  function copyWebhookUrl() {
+    const webhookUrl = API_ENDPOINTS.webhookEndpoint()
+    navigator.clipboard.writeText(webhookUrl)
+    setWebhookCopied(true)
+    setTimeout(() => setWebhookCopied(false), 2000)
   }
 
   async function handleSave() {
@@ -46,7 +56,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return value  // New value - update
       }
 
-      const res = await fetch('http://localhost:8000/api/settings', {
+      const res = await fetch(API_ENDPOINTS.settings(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,6 +170,59 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               >
                 Create token
               </a>
+            </p>
+          </div>
+
+          {/* Webhook Setup */}
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                GitHub Webhook (Real-time Updates)
+              </label>
+              <button
+                onClick={() => setShowWebhookInstructions(!showWebhookInstructions)}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {showWebhookInstructions ? 'Hide Instructions' : 'Show Instructions'}
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={API_ENDPOINTS.webhookEndpoint()}
+                readOnly
+                className="flex-1 px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
+              />
+              <button
+                onClick={copyWebhookUrl}
+                className="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-md text-xs font-medium transition-colors"
+              >
+                {webhookCopied ? '✓ Copied' : 'Copy'}
+              </button>
+            </div>
+
+            {showWebhookInstructions && (
+              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
+                <h4 className="text-xs font-semibold text-gray-900 dark:text-white mb-2">Setup Instructions:</h4>
+                <ol className="text-xs text-gray-700 dark:text-gray-300 space-y-1 list-decimal list-inside">
+                  <li>Go to your repository on GitHub</li>
+                  <li>Navigate to Settings → Webhooks → Add webhook</li>
+                  <li>Paste the webhook URL above</li>
+                  <li>Set Content type to: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">application/json</code></li>
+                  <li>Set a secure secret (optional, for production)</li>
+                  <li>Select: <strong>Issues</strong> and <strong>Pull requests</strong> events</li>
+                  <li>Ensure Active is checked</li>
+                  <li>Click "Add webhook"</li>
+                </ol>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                  ℹ️ Webhooks enable real-time updates when issues or PRs are created/modified.
+                </p>
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              Enable webhooks to automatically sync issues and PRs when they change.
             </p>
           </div>
 

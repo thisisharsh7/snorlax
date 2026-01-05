@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Github, Trash2 } from 'lucide-react'
 import DeleteRepoModal from './DeleteRepoModal'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface Repository {
   repo_url: string
@@ -34,7 +35,7 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
 
   async function loadRepositories() {
     try {
-      const res = await fetch('http://localhost:8000/api/repositories')
+      const res = await fetch(API_ENDPOINTS.repositories())
       if (!res.ok) {
         console.error('Failed to load repositories: HTTP', res.status)
         setLoading(false)
@@ -57,7 +58,7 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
 
   async function handleDeleteRepo(projectId: string) {
     try {
-      const res = await fetch(`http://localhost:8000/api/repositories/${projectId}`, {
+      const res = await fetch(API_ENDPOINTS.deleteRepo(projectId), {
         method: 'DELETE'
       })
 

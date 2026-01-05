@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
   issue_number: number
@@ -62,6 +63,8 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
   const [copiedResponse, setCopiedResponse] = useState<number | null>(null)
   const [analyzedIssues, setAnalyzedIssues] = useState<Map<number, TriageAnalysis>>(new Map())
   const [issueBodyExpanded, setIssueBodyExpanded] = useState(false)
+  const [postingResponse, setPostingResponse] = useState<number | null>(null)
+  const [postedResponse, setPostedResponse] = useState<number | null>(null)
 
   // Refs for keyboard handler (to avoid stale closures)
   const currentIndexRef = useRef(currentIndex)
@@ -169,7 +172,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
   async function loadUncategorizedIssues() {
     try {
       setLoading(true)
-      const res = await fetch(`http://localhost:8000/api/triage/issues/${projectId}/uncategorized`)
+      const res = await fetch(API_ENDPOINTS.triageUncategorized(projectId))
 
       if (!res.ok) {
         throw new Error('Failed to load issues')
@@ -202,7 +205,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       setAnalyzing(true)
 
       const res = await fetch(
-        `http://localhost:8000/api/triage/analyze/${projectId}/${issueNumber}`,
+        API_ENDPOINTS.triageAnalyze(projectId, issueNumber),
         { method: 'POST' }
       )
 
@@ -263,6 +266,43 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       setTimeout(() => setCopiedResponse(null), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
+    }
+  }
+
+  async function postResponseToGitHub(index: number) {
+    if (!analysis?.suggested_responses[index]) return
+
+    const response = analysis.suggested_responses[index]
+    const currentIssue = issues[currentIndex]
+
+    setPostingResponse(index)
+
+    try {
+      const res = await fetch(
+        API_ENDPOINTS.postComment(projectId, currentIssue.issue_number),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment_body: response.body })
+        }
+      )
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.detail || 'Failed to post comment')
+      }
+
+      const result = await res.json()
+
+      setPostedResponse(index)
+      setTimeout(() => setPostedResponse(null), 3000)
+
+      console.log('Comment posted successfully:', result.comment_url)
+    } catch (err: any) {
+      console.error('Failed to post to GitHub:', err)
+      alert(`Failed to post comment: ${err.message}`)
+    } finally {
+      setPostingResponse(null)
     }
   }
 
@@ -426,16 +466,31 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
                             <div key={index} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                               <div className="flex justify-between items-start mb-2">
                                 <span className="font-medium text-sm text-gray-900 dark:text-white">{response.title}</span>
-                                <button
-                                  onClick={() => copyResponse(index)}
-                                  className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
-                                >
-                                  {copiedResponse === index ? (
-                                    <>✓ Copied</>
-                                  ) : (
-                                    <><kbd className="kbd">{index + 1}</kbd> Copy</>
-                                  )}
-                                </button>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => copyResponse(index)}
+                                    className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                                  >
+                                    {copiedResponse === index ? (
+                                      <>✓ Copied</>
+                                    ) : (
+                                      <><kbd className="kbd">{index + 1}</kbd> Copy</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => postResponseToGitHub(index)}
+                                    disabled={postingResponse === index}
+                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    {postingResponse === index ? (
+                                      'Posting...'
+                                    ) : postedResponse === index ? (
+                                      '✓ Posted!'
+                                    ) : (
+                                      'Post to GitHub'
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                               <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans">
                                 {response.body}

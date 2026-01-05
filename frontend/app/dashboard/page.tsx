@@ -10,6 +10,7 @@ import TriageModeModal from '@/components/TriageModeModal'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
 import { Github, Settings, Sun, Moon, RefreshCw } from 'lucide-react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface Repository {
   repo_url: string
@@ -86,7 +87,7 @@ export default function Dashboard() {
 
   async function checkSettings() {
     try {
-      const res = await fetch('http://localhost:8000/api/settings')
+      const res = await fetch(API_ENDPOINTS.settings())
       const data = await res.json()
       setHasAIKey(data.anthropic_key_set || data.openai_key_set || data.openrouter_key_set)
       setHasGithubToken(data.github_token_set)
@@ -107,7 +108,7 @@ export default function Dashboard() {
 
   async function loadRepositories() {
     try {
-      const res = await fetch('http://localhost:8000/api/repositories')
+      const res = await fetch(API_ENDPOINTS.repositories())
       const data = await res.json()
       setRepos(data)
 
@@ -134,7 +135,7 @@ export default function Dashboard() {
     if (!selectedRepo) return
 
     try {
-      const res = await fetch(`http://localhost:8000/api/reindex/${selectedRepo.project_id}`, {
+      const res = await fetch(API_ENDPOINTS.reindex(selectedRepo.project_id), {
         method: 'POST'
       })
 
@@ -171,11 +172,11 @@ export default function Dashboard() {
 
     try {
       const [issuesRes, prsRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/github/import-issues/${selectedRepo.project_id}`, {
+        fetch(API_ENDPOINTS.importIssues(selectedRepo.project_id), {
           method: 'POST',
           signal: controller.signal
         }),
-        fetch(`http://localhost:8000/api/github/import-prs/${selectedRepo.project_id}`, {
+        fetch(API_ENDPOINTS.importPRs(selectedRepo.project_id), {
           method: 'POST',
           signal: controller.signal
         })

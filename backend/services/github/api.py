@@ -634,3 +634,46 @@ class GitHubService:
             }
             for row in results
         ]
+
+    def post_issue_comment(self, project_id: str, issue_number: int, comment_body: str) -> Dict:
+        """
+        Post a comment on a GitHub issue.
+
+        Args:
+            project_id: Repository full name (e.g., "owner/repo")
+            issue_number: Issue number
+            comment_body: Comment text to post
+
+        Returns:
+            Dictionary with comment information
+
+        Raises:
+            GithubException: If posting comment fails
+            ValueError: If not authenticated or repo not found
+        """
+        if not self.token:
+            raise ValueError("Cannot post comments without GitHub authentication token. Please add a token in Settings.")
+
+        try:
+            # Get repository
+            repo = self.github.get_repo(project_id)
+
+            # Get issue
+            issue = repo.get_issue(issue_number)
+
+            # Post comment
+            comment = issue.create_comment(comment_body)
+
+            return {
+                "success": True,
+                "comment_id": comment.id,
+                "comment_url": comment.html_url,
+                "created_at": comment.created_at.isoformat(),
+                "author": comment.user.login
+            }
+
+        except GithubException as e:
+            error_msg = f"Failed to post comment: {e.data.get('message', str(e))}"
+            raise GithubException(e.status, error_msg, e.headers)
+        except Exception as e:
+            raise Exception(f"Unexpected error posting comment: {str(e)}")

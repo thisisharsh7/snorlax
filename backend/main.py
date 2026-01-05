@@ -3,12 +3,13 @@ FastAPI backend for GitHub Issue Triage Assistant.
 Main application entry point.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from utils.database import get_db_connection, load_settings_from_db
-from api import repositories, github, settings, categorization, triage
+from api import repositories, github, settings, categorization, triage, webhooks
 
 load_dotenv()
 
@@ -23,9 +24,18 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend
+# Configure allowed origins from environment variable
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
+# Add common development origins
+if "http://localhost:3000" not in allowed_origins:
+    allowed_origins.append("http://localhost:3000")
+if "http://127.0.0.1:3000" not in allowed_origins:
+    allowed_origins.append("http://127.0.0.1:3000")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,6 +47,7 @@ app.include_router(github.router)
 app.include_router(settings.router)
 app.include_router(categorization.router)
 app.include_router(triage.router)
+app.include_router(webhooks.router)
 
 
 # Root endpoints
@@ -53,7 +64,8 @@ async def root():
             "github": "/api/github",
             "settings": "/api/settings",
             "triage": "/api/triage",
-            "categorization": "/api/categorize-issues"
+            "categorization": "/api/categorize-issues",
+            "webhooks": "/api/webhooks"
         }
     }
 

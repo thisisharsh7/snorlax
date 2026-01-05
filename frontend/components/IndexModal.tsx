@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface IndexModalProps {
   isOpen: boolean
@@ -47,7 +48,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/status/${projectId}`)
+        const res = await fetch(API_ENDPOINTS.status(projectId))
         if (!res.ok) return
 
         const data = await res.json()
@@ -96,7 +97,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
 
     try {
       // Start indexing
-      const res = await fetch('http://localhost:8000/api/index', {
+      const res = await fetch(API_ENDPOINTS.index(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ github_url: url })
@@ -125,7 +126,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
       updateStage('import', 'in_progress')
 
       // Import issues
-      const issuesRes = await fetch(`http://localhost:8000/api/github/import-issues/${projectId}`, {
+      const issuesRes = await fetch(API_ENDPOINTS.importIssues(projectId), {
         method: 'POST'
       })
 
@@ -134,7 +135,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
       }
 
       // Import PRs
-      const prsRes = await fetch(`http://localhost:8000/api/github/import-prs/${projectId}`, {
+      const prsRes = await fetch(API_ENDPOINTS.importPRs(projectId), {
         method: 'POST'
       })
 
