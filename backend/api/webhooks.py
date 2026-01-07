@@ -32,10 +32,11 @@ def verify_github_signature(payload_body: bytes, signature_header: str) -> bool:
         True if signature is valid, False otherwise
     """
     if not GITHUB_WEBHOOK_SECRET:
-        logger.warning("GITHUB_WEBHOOK_SECRET not set - skipping signature verification")
-        return True  # Allow webhooks in development without secret
+        logger.error("GITHUB_WEBHOOK_SECRET not set - rejecting webhook for security")
+        return False  # SECURITY: Reject all webhooks if secret not configured
 
     if not signature_header:
+        logger.warning("Webhook received without signature header")
         return False
 
     # GitHub sends signature as "sha256=<hash>"
@@ -291,8 +292,13 @@ async def github_webhook(
         Status response
     """
     try:
-        # Get raw body for signature verification
+        # Get raw body for signature verification (with size limit)
+        MAX_PAYLOAD_SIZE = 1024 * 1024  # 1MB limit
         body = await request.body()
+
+        if len(body) > MAX_PAYLOAD_SIZE:
+            logger.warning(f"Webhook payload too large: {len(body)} bytes")
+            raise HTTPException(status_code=413, detail="Payload too large")
 
         # Verify webhook signature
         if not verify_github_signature(body, x_hub_signature_256):

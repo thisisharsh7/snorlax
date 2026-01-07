@@ -3,11 +3,35 @@
 import os
 import psycopg
 import re
+from contextlib import contextmanager
+from typing import Generator
 
 
 def get_db_connection():
     """Get database connection."""
     return psycopg.connect(os.getenv("APP_DATABASE_URL"))
+
+
+@contextmanager
+def get_db_connection_ctx() -> Generator[psycopg.Connection, None, None]:
+    """
+    Context manager for database connections.
+
+    Ensures connections are properly closed even if exceptions occur.
+
+    Usage:
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT ...")
+            # Connection automatically closed on exit
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        yield conn
+    finally:
+        if conn:
+            conn.close()
 
 
 def extract_repo_name(github_url: str) -> str:
