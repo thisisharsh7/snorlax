@@ -1,11 +1,16 @@
 """Triage API endpoints for GitHub Issue Triage Assistant."""
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import List, Dict, Optional, Any
 import logging
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from utils.database import get_db_connection
 from services.ai.categorization import IssueCategorizationService
+
+# Initialize rate limiter for this router
+limiter = Limiter(key_func=get_remote_address)
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -276,7 +281,8 @@ async def get_uncategorized_issues(project_id: str):
 
 
 @router.post("/analyze/{project_id}/{issue_number}")
-async def analyze_issue_for_triage(project_id: str, issue_number: int):
+@limiter.limit("30/minute")  # Limit AI API calls to 30 per minute per IP
+async def analyze_issue_for_triage(request: Request, project_id: str, issue_number: int):
     """
     Run full AI analysis on a single issue for triage mode.
 
@@ -318,7 +324,8 @@ async def analyze_issue_for_triage(project_id: str, issue_number: int):
 
 
 @router.post("/batch-triage/{project_id}")
-async def batch_triage_issues(project_id: str, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")  # Very restrictive - batch operations are expensive
+async def batch_triage_issues(request: Request, project_id: str, background_tasks: BackgroundTasks):
     """
     Triage all uncategorized issues in the background.
 

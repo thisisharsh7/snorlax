@@ -121,34 +121,51 @@ APP_DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
 
 ### 2. Settings Endpoint Protection
 
-**Status**: ⚠️ Settings endpoint is not authenticated
+**Status**: ✅ Settings endpoint is now protected with authentication
 
-**Current State**:
-- `POST /api/settings` allows anyone to change API keys
-- Critical for single-user deployments
+**Implementation**:
+- HTTP Basic Auth required for `POST /api/settings`
+- Admin credentials from `ADMIN_USERNAME` and `ADMIN_PASSWORD` env vars
+- Constant-time comparison prevents timing attacks
+- Rate limited to 10 requests/minute per IP (prevents brute force)
 
-**Mitigation**:
-- Deploy in trusted network only
-- Add authentication middleware
-- Use environment variables instead (less flexible)
+**Configuration**:
+```bash
+# backend/.env
+ADMIN_USERNAME=admin  # Optional, defaults to "admin"
+ADMIN_PASSWORD=your-secure-password-here  # REQUIRED
+```
 
-**Recommendation**: Add authentication before multi-user deployment
+**Security Features**:
+- ✅ Authentication required
+- ✅ Rate limiting (10/minute)
+- ✅ Constant-time credential comparison
+- ✅ Automatic password clearing in UI on success
 
 ### 3. Rate Limiting
 
-**Status**: ⚠️ Limited rate limiting implemented
+**Status**: ✅ Comprehensive rate limiting implemented
 
-**Current State**:
-- Webhook endpoint has payload size limits (1MB)
-- No request-per-second limits
-- GitHub API rate limit checking exists
+**Implementation**:
+- Webhook endpoint: 100 requests/minute per IP
+- Settings endpoint: 10 requests/minute per IP (brute force protection)
+- AI analyze endpoint: 30 requests/minute per IP (cost control)
+- Batch triage endpoint: 5 requests/minute per IP (very expensive operations)
 
-**Mitigation**:
-- Deploy behind reverse proxy with rate limiting (nginx, Cloudflare)
-- Monitor webhook delivery logs
-- Set up alerts for unusual traffic
+**Technology**: slowapi (FastAPI rate limiting middleware)
 
-**Future Enhancement**: Add FastAPI rate limiting middleware
+**Features**:
+- ✅ IP-based rate limiting
+- ✅ Per-endpoint limits
+- ✅ Automatic 429 responses when exceeded
+- ✅ Payload size limits (1MB for webhooks)
+- ✅ GitHub API rate limit checking
+
+**Rate Limit Headers**:
+Responses include standard rate limit headers:
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in window
+- `X-RateLimit-Reset`: Time when limit resets
 
 ### 4. Input Validation
 
@@ -168,6 +185,22 @@ APP_DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
 ---
 
 ## Security Features Implemented
+
+### ✅ Settings Endpoint Authentication
+- HTTP Basic Auth with admin credentials
+- Constant-time credential comparison (prevents timing attacks)
+- Admin password required via `ADMIN_PASSWORD` environment variable
+- Username configurable via `ADMIN_USERNAME` (default: "admin")
+
+### ✅ Rate Limiting
+- IP-based rate limiting using slowapi
+- Per-endpoint limits:
+  - Webhooks: 100/minute
+  - Settings: 10/minute (brute force protection)
+  - AI Analysis: 30/minute (cost control)
+  - Batch Triage: 5/minute (expensive operations)
+- Automatic 429 Too Many Requests responses
+- Standard rate limit headers included
 
 ### ✅ Webhook Signature Verification
 - HMAC SHA-256 validation
@@ -219,11 +252,38 @@ APP_DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
    - **After**: 1MB maximum payload size
    - **File**: `backend/api/webhooks.py:296-301`
 
+### Critical Issues Fixed (2026-01-07)
+
+4. **Settings Endpoint Protection** (CRITICAL)
+   - **Before**: Anyone could change API keys without authentication
+   - **After**: HTTP Basic Auth required with admin credentials
+   - **Files**:
+     - `backend/utils/security.py` (authentication module)
+     - `backend/api/settings.py` (endpoint protection)
+     - `frontend/components/SettingsModal.tsx` (UI with password input)
+
+5. **Rate Limiting** (HIGH)
+   - **Before**: No rate limiting on any endpoints
+   - **After**: Comprehensive rate limiting on all sensitive endpoints
+   - **Files**:
+     - `backend/main.py` (slowapi integration)
+     - `backend/api/webhooks.py` (100/minute)
+     - `backend/api/settings.py` (10/minute)
+     - `backend/api/triage.py` (30/minute for analyze, 5/minute for batch)
+
 ### Remaining Known Issues
 
-See [Bug Analysis Report](#bug-analysis-summary) for complete list:
-- 5 Critical issues (0 remaining after fixes)
-- 5 High priority issues (2 remaining)
+See [Bug Analysis Report](docs/BUG_ANALYSIS_2026-01-06.md) for complete list:
+- 5 Critical issues (0 remaining - all fixed!)
+  - ✅ Webhook signature bypass (fixed 2026-01-06)
+  - ✅ Database connection leaks (fixed 2026-01-06)
+  - ✅ Request size limit (fixed 2026-01-06)
+  - ✅ Settings endpoint protection (fixed 2026-01-07)
+  - ✅ Rate limiting (fixed 2026-01-07)
+- 5 High priority issues (1 remaining)
+  - ✅ Rate limiting implemented (fixed 2026-01-07)
+  - ⚠️ GitHub API exponential backoff (pending)
+  - ⚠️ Race condition in repo indexing (pending)
 - 17 Medium priority issues (15 remaining)
 - 5 Low priority issues (5 remaining)
 

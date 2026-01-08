@@ -11,6 +11,7 @@ interface SettingsModalProps {
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [showWebhookInstructions, setShowWebhookInstructions] = useState(false)
@@ -49,6 +50,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setMessage(null)
 
     try {
+      // Validate admin password is provided
+      if (!adminPassword) {
+        throw new Error('Admin password is required to save settings')
+      }
+
       // Helper to determine what to send for each key
       const processKey = (value: string) => {
         if (value === '••••••••••••••••') return undefined  // Masked - don't change
@@ -56,9 +62,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return value  // New value - update
       }
 
+      // Create Basic Auth header
+      const adminUsername = 'admin' // Default username
+      const credentials = btoa(`${adminUsername}:${adminPassword}`)
+
       const res = await fetch(API_ENDPOINTS.settings(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${credentials}`
+        },
         body: JSON.stringify({
           ai_provider: 'anthropic',
           anthropic_api_key: processKey(anthropicKey),
@@ -68,10 +81,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (!res.ok) {
         const data = await res.json()
+        if (res.status === 401) {
+          throw new Error('Invalid admin password')
+        }
         throw new Error(data.detail || 'Failed to save settings')
       }
 
       setMessage({ type: 'success', text: 'Settings saved successfully!' })
+      setAdminPassword('') // Clear password on success
       setTimeout(() => {
         onClose()
       }, 1500)
@@ -170,6 +187,26 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               >
                 Create token
               </a>
+            </p>
+          </div>
+
+          {/* Admin Password - Required for Saving */}
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-1 mb-1">
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Admin Password <span className="text-red-600">*</span>
+              </label>
+              <span className="text-xs text-gray-500 dark:text-gray-400">(Required to save changes)</span>
+            </div>
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Enter admin password"
+              className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Set via <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ADMIN_PASSWORD</code> environment variable in backend. Default username: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">admin</code>
             </p>
           </div>
 

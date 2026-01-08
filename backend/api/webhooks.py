@@ -7,8 +7,13 @@ import os
 import logging
 from typing import Dict, Any
 from fastapi import APIRouter, Request, HTTPException, Header
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from utils.database import get_db_connection
+
+# Initialize rate limiter for this router
+limiter = Limiter(key_func=get_remote_address)
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -272,6 +277,7 @@ async def handle_pull_request_event(event_action: str, payload: Dict[str, Any]) 
 
 
 @router.post("/github")
+@limiter.limit("100/minute")  # Allow 100 webhook events per minute per IP
 async def github_webhook(
     request: Request,
     x_hub_signature_256: str = Header(None),
@@ -279,6 +285,8 @@ async def github_webhook(
 ):
     """
     Handle incoming GitHub webhook events.
+
+    Rate Limit: 100 requests per minute per IP address
 
     Supports:
     - Issues (opened, edited, closed, reopened)
