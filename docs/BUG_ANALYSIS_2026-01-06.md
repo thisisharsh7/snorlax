@@ -223,89 +223,106 @@ async def get_repos(current_user: User = Depends(get_current_user)):
 ### 🟠 Issue #6: GitHub API Rate Limiting Not Fully Handled
 **File**: `backend/services/github/api.py`
 **Severity**: HIGH
-**Status**: ❌ NOT FIXED
+**Status**: ✅ FIXED (2026-01-08)
 
 **Problem**:
 - Rate limit check exists ✅
-- No exponential backoff on 429 responses ❌
-- No local rate limiting ❌
-- No caching of API responses ❌
+- No exponential backoff on 429 responses ❌ → ✅ FIXED
+- No local rate limiting ✅ (handled by slowapi middleware)
+- No caching of API responses ❌ (acceptable - incremental sync reduces calls)
 
 **Impact**: Bursts of requests can deplete rate limit quickly.
 
-**Recommended Fix**:
+**Implementation**:
+
+Created `retry_with_exponential_backoff` decorator with:
+- Automatic retry on rate limit errors (429)
+- Exponential backoff: 1s → 2s → 4s
+- Uses GitHub's reset time when available
+- Retries on transient errors (502, 503, 504)
+- Max 60-second delay cap
+- Comprehensive logging
+
+**Applied to**:
+- `import_issues()` - Issue fetching
+- `import_pull_requests()` - PR fetching
+- `post_issue_comment()` - Comment posting
+
+**Example**:
 ```python
-import time
-from functools import wraps
-
-def retry_with_backoff(max_retries=3):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except GithubException as e:
-                    if e.status == 429:  # Rate limited
-                        wait_time = 2 ** attempt  # Exponential backoff
-                        logger.warning(f"Rate limited. Waiting {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        raise
-            raise Exception("Max retries exceeded")
-        return wrapper
-    return decorator
-
-@retry_with_backoff(max_retries=3)
-def fetch_issues(self, repo_name):
-    # GitHub API call
-    pass
+@retry_with_exponential_backoff(max_retries=3, base_delay=2.0)
+def import_issues(self, project_id, github_url, limit):
+    repo = self.github.get_repo(repo_name)
+    # ... fetches with automatic retry
 ```
+
+**Benefits**:
+- ✅ Automatic recovery from rate limits
+- ✅ Handles transient GitHub API errors
+- ✅ Respects GitHub's rate limit reset time
+- ✅ Prevents API exhaustion from retry storms
 
 ---
 
 ### 🟠 Issue #7: Race Condition in Repository Indexing
-**File**: `backend/api/repositories.py` (lines 154-169)
+**File**: `backend/api/repositories.py` (lines 128-204)
 **Severity**: HIGH
-**Status**: ❌ NOT FIXED
+**Status**: ✅ FIXED (2026-01-08)
 
-**Problem**: Multiple simultaneous POST requests can create duplicate indexing tasks.
+**Problem**: Multiple simultaneous POST requests could create duplicate indexing tasks.
 
-**Scenario**:
-1. User clicks "Index" button
+**Scenario (Before)**:
+1. User clicks "Index" button twice quickly
 2. Request 1: Check if repo exists → Not found → Start indexing
 3. Request 2: Check if repo exists → Not found → Start indexing (duplicate!)
 4. Two indexing processes run simultaneously
 
 **Impact**:
-- Wasted resources
+- Wasted resources (double API calls, double computation)
 - Race conditions in file writes
-- Database constraint violations
+- Potential database constraint violations
 
-**Recommended Fix**: Use database row locking:
+**Implementation**:
+
+Changed from SELECT-then-INSERT (race condition) to atomic INSERT ... ON CONFLICT:
+
 ```python
-# Check for existing repo WITH lock
+# Try to insert new repo atomically
+# The UNIQUE constraint on repo_url makes this atomic
 cur.execute("""
-    SELECT project_id, status
-    FROM repositories
-    WHERE repo_url = %s
-    FOR UPDATE  -- ✅ Locks the row
-""", (repo_url,))
+    INSERT INTO repositories (repo_url, project_id, repo_name, status)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (repo_url) DO NOTHING
+    RETURNING project_id, status
+""", (repo_url, project_id, repo_name, "indexing"))
 
-existing = cur.fetchone()
+insert_result = cur.fetchone()
 
-if existing:
-    # Already exists or being processed
-    return existing
-else:
-    # Insert and start indexing
-    cur.execute("""
-        INSERT INTO repositories (project_id, repo_url, status)
-        VALUES (%s, %s, %s)
-    """, (project_id, repo_url, "indexing"))
-    conn.commit()
+if insert_result:
+    # Successfully inserted - start indexing
     background_tasks.add_task(index_repository, project_id, repo_url)
+else:
+    # Conflict: repo already exists, fetch with FOR UPDATE
+    cur.execute(
+        "SELECT project_id, status FROM repositories WHERE repo_url = %s FOR UPDATE",
+        (repo_url,)
+    )
+    existing = cur.fetchone()
+    # Return existing or re-index if failed
 ```
+
+**How It Works**:
+1. **Attempt Insert**: Try to INSERT new repo
+2. **ON CONFLICT DO NOTHING**: If repo_url already exists (UNIQUE constraint), do nothing
+3. **RETURNING**: If insert succeeded, return the new row's project_id
+4. **No Result**: If conflict occurred, fetch existing repo with FOR UPDATE lock
+5. **Atomic**: The UNIQUE constraint + ON CONFLICT makes this completely atomic
+
+**Benefits**:
+- ✅ Eliminates race condition (atomic operation)
+- ✅ Only one indexing task per repo (guaranteed)
+- ✅ No wasted resources
+- ✅ Database handles concurrency automatically
 
 ---
 

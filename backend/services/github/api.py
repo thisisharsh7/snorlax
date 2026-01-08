@@ -4,9 +4,125 @@ Service for GitHub API integration - fetching issues, PRs, and comments.
 
 from github import Github, GithubException, RateLimitExceededException
 import os
-from typing import List, Dict, Optional
+import time
+import logging
+from typing import List, Dict, Optional, Callable, Any
+from functools import wraps
 import psycopg
 from datetime import datetime
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+
+def retry_with_exponential_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    exponential_base: float = 2.0,
+    exceptions: tuple = (GithubException, RateLimitExceededException)
+):
+    """
+    Decorator that retries a function with exponential backoff on specific exceptions.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Initial delay in seconds (default: 1.0)
+        max_delay: Maximum delay between retries in seconds (default: 60.0)
+        exponential_base: Base for exponential backoff calculation (default: 2.0)
+        exceptions: Tuple of exceptions to catch and retry (default: GitHub exceptions)
+
+    Returns:
+        Decorated function with retry logic
+
+    Example:
+        @retry_with_exponential_backoff(max_retries=3)
+        def fetch_issues(repo_name):
+            return github.get_repo(repo_name).get_issues()
+
+    Backoff Strategy:
+        - Attempt 1: No delay
+        - Attempt 2: 1 second delay (2^0 * 1)
+        - Attempt 3: 2 second delay (2^1 * 1)
+        - Attempt 4: 4 second delay (2^2 * 1)
+        - For rate limits: Uses GitHub's reset time or backoff, whichever is shorter
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+
+                except RateLimitExceededException as e:
+                    last_exception = e
+
+                    if attempt == max_retries:
+                        logger.error(f"GitHub rate limit exceeded after {max_retries} retries")
+                        raise
+
+                    # For rate limit errors, use GitHub's reset time
+                    try:
+                        # Try to get the reset time from the exception or API
+                        # PyGithub provides rate limit info via the exception
+                        reset_time = getattr(e, 'reset_time', None)
+                        if reset_time:
+                            wait_time = min(reset_time - time.time(), max_delay)
+                            if wait_time > 0:
+                                logger.warning(
+                                    f"Rate limit exceeded. Waiting {wait_time:.1f}s until reset "
+                                    f"(attempt {attempt + 1}/{max_retries})"
+                                )
+                                time.sleep(wait_time)
+                                continue
+                    except Exception:
+                        pass
+
+                    # Fallback to exponential backoff if reset time unavailable
+                    wait_time = min(base_delay * (exponential_base ** attempt), max_delay)
+                    logger.warning(
+                        f"Rate limit exceeded. Backing off for {wait_time:.1f}s "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+
+                except exceptions as e:
+                    last_exception = e
+
+                    if attempt == max_retries:
+                        logger.error(
+                            f"GitHub API call failed after {max_retries} retries: {str(e)}"
+                        )
+                        raise
+
+                    # Check if this is a retryable error
+                    status_code = getattr(e, 'status', None)
+
+                    # Retry on:
+                    # - 429 (rate limit) - handled above
+                    # - 502 (bad gateway)
+                    # - 503 (service unavailable)
+                    # - 504 (gateway timeout)
+                    if status_code in [502, 503, 504]:
+                        wait_time = min(base_delay * (exponential_base ** attempt), max_delay)
+                        logger.warning(
+                            f"GitHub API error {status_code}. Retrying in {wait_time:.1f}s "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        # Not a retryable error, raise immediately
+                        logger.error(f"Non-retryable GitHub API error: {str(e)}")
+                        raise
+
+            # If we exhausted all retries
+            if last_exception:
+                raise last_exception
+
+        return wrapper
+    return decorator
 
 
 class GitHubService:
@@ -109,9 +225,12 @@ class GitHubService:
         else:
             raise ValueError(f"Invalid GitHub URL: {github_url}")
 
+    @retry_with_exponential_backoff(max_retries=3, base_delay=2.0)
     def import_issues(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
         Import issues from a GitHub repository.
+
+        Automatically retries on transient GitHub API errors with exponential backoff.
 
         Args:
             project_id: Project identifier
@@ -310,9 +429,12 @@ class GitHubService:
                 "message": f"Import failed: {str(e)}"
             }
 
+    @retry_with_exponential_backoff(max_retries=3, base_delay=2.0)
     def import_pull_requests(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
         Import pull requests from a GitHub repository.
+
+        Automatically retries on transient GitHub API errors with exponential backoff.
 
         Args:
             project_id: Project identifier
@@ -635,9 +757,12 @@ class GitHubService:
             for row in results
         ]
 
+    @retry_with_exponential_backoff(max_retries=3, base_delay=1.0)
     def post_issue_comment(self, project_id: str, issue_number: int, comment_body: str) -> Dict:
         """
         Post a comment on a GitHub issue.
+
+        Automatically retries on transient GitHub API errors with exponential backoff.
 
         Args:
             project_id: Repository full name (e.g., "owner/repo")

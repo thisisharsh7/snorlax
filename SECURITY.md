@@ -271,6 +271,32 @@ Responses include standard rate limit headers:
      - `backend/api/settings.py` (10/minute)
      - `backend/api/triage.py` (30/minute for analyze, 5/minute for batch)
 
+### High Priority Issues Fixed (2026-01-08)
+
+6. **GitHub API Exponential Backoff** (HIGH)
+   - **Before**: No retry logic for GitHub API failures; rate limit errors crashed operations
+   - **After**: Automatic retry with exponential backoff on transient errors
+   - **Features**:
+     - Retries rate limit errors (429) with exponential backoff
+     - Uses GitHub's reset time when available
+     - Retries transient errors (502, 503, 504)
+     - Max 3 retries with 60-second delay cap
+     - Comprehensive logging of retry attempts
+   - **Files**:
+     - `backend/services/github/api.py` (retry decorator + applied to 3 methods)
+
+7. **Race Condition in Repository Indexing** (HIGH)
+   - **Before**: Concurrent requests could create duplicate indexing tasks
+   - **After**: Atomic INSERT ... ON CONFLICT prevents duplicates
+   - **Attack Prevented**: Resource exhaustion via duplicate indexing
+   - **Features**:
+     - Atomic database operations using UNIQUE constraint
+     - ON CONFLICT DO NOTHING pattern
+     - FOR UPDATE lock for existing repos
+     - Guaranteed single indexing task per repository
+   - **Files**:
+     - `backend/api/repositories.py` (index_repo endpoint)
+
 ### Remaining Known Issues
 
 See [Bug Analysis Report](docs/BUG_ANALYSIS_2026-01-06.md) for complete list:
@@ -280,10 +306,10 @@ See [Bug Analysis Report](docs/BUG_ANALYSIS_2026-01-06.md) for complete list:
   - ✅ Request size limit (fixed 2026-01-06)
   - ✅ Settings endpoint protection (fixed 2026-01-07)
   - ✅ Rate limiting (fixed 2026-01-07)
-- 5 High priority issues (1 remaining)
-  - ✅ Rate limiting implemented (fixed 2026-01-07)
-  - ⚠️ GitHub API exponential backoff (pending)
-  - ⚠️ Race condition in repo indexing (pending)
+- 5 High priority issues (0 remaining - all fixed!)
+  - ✅ Application rate limiting implemented (fixed 2026-01-07)
+  - ✅ GitHub API exponential backoff (fixed 2026-01-08)
+  - ✅ Race condition in repo indexing (fixed 2026-01-08)
 - 17 Medium priority issues (15 remaining)
 - 5 Low priority issues (5 remaining)
 

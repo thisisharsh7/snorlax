@@ -125,40 +125,75 @@ async def index_repo(
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Check if repository already exists
-        cur.execute(
-            "SELECT project_id, status FROM repositories WHERE repo_url = %s",
-            (repo_url,)
-        )
-        existing = cur.fetchone()
+        # Use atomic INSERT ... ON CONFLICT to prevent race conditions
+        # This handles concurrent requests trying to index the same repo
+        project_id = str(uuid.uuid4())
 
-        if existing:
-            project_id, status = existing
+        # Try to insert new repo, or do nothing if it already exists
+        # The UNIQUE constraint on repo_url makes this atomic
+        cur.execute(
+            """
+            INSERT INTO repositories (repo_url, project_id, repo_name, status)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (repo_url) DO NOTHING
+            RETURNING project_id, status
+            """,
+            (repo_url, project_id, repo_name, "indexing")
+        )
+
+        insert_result = cur.fetchone()
+
+        if insert_result:
+            # Successfully inserted - this is a new repository
+            project_id, status = insert_result
+            conn.commit()
             cur.close()
             conn.close()
 
-            # Return existing project
+            # Start indexing in background
+            background_tasks.add_task(index_repository, project_id, repo_url)
+
+            return IndexResponse(
+                project_id=project_id,
+                status="indexing",
+                message=f"Indexing '{repo_name}' started. This may take a few minutes."
+            )
+        else:
+            # Repository already exists (conflict occurred)
+            # Now fetch it with FOR UPDATE to prevent concurrent modifications
+            cur.execute(
+                "SELECT project_id, status FROM repositories WHERE repo_url = %s FOR UPDATE",
+                (repo_url,)
+            )
+            existing = cur.fetchone()
+            project_id, status = existing
+
+            # Return existing project based on status
             if status == "indexed":
+                conn.commit()  # Release lock
+                cur.close()
+                conn.close()
                 return IndexResponse(
                     project_id=project_id,
                     status="indexed",
                     message=f"Repository '{repo_name}' is already indexed."
                 )
             elif status == "indexing":
+                conn.commit()  # Release lock
+                cur.close()
+                conn.close()
                 return IndexResponse(
                     project_id=project_id,
                     status="indexing",
                     message=f"Repository '{repo_name}' is currently being indexed."
                 )
             else:  # failed - allow re-indexing
-                # Update status and restart indexing
-                conn = get_db_connection()
-                cur = conn.cursor()
+                # Update status and restart indexing (within transaction)
                 cur.execute(
                     "UPDATE repositories SET status = %s WHERE project_id = %s",
                     ("indexing", project_id)
                 )
-                conn.commit()
+                conn.commit()  # Commit status update and release lock
                 cur.close()
                 conn.close()
                 background_tasks.add_task(index_repository, project_id, repo_url)
@@ -167,26 +202,6 @@ async def index_repo(
                     status="indexing",
                     message=f"Re-indexing repository '{repo_name}'."
                 )
-
-        # Create new repository entry
-        project_id = str(uuid.uuid4())
-        cur.execute(
-            """INSERT INTO repositories (repo_url, project_id, repo_name, status)
-               VALUES (%s, %s, %s, %s)""",
-            (repo_url, project_id, repo_name, "indexing")
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        # Start indexing in background
-        background_tasks.add_task(index_repository, project_id, repo_url)
-
-        return IndexResponse(
-            project_id=project_id,
-            status="indexing",
-            message=f"Indexing '{repo_name}' started. This may take a few minutes."
-        )
 
     except Exception as e:
         raise HTTPException(
