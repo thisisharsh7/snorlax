@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Category {
@@ -46,21 +46,48 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   const [selectedIssue, setSelectedIssue] = useState<CategorizedIssue | null>(null)
   const [generatingComment, setGeneratingComment] = useState<number | null>(null)
   const [generatedComment, setGeneratedComment] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Ref for immediate race condition checking
+  const categorizingRef = useRef(false)
 
   useEffect(() => {
-    loadCategorizedIssues()
-    loadStats()
+    const controller = new AbortController()
+
+    async function loadData() {
+      await loadCategorizedIssues()
+      await loadStats()
+    }
+
+    loadData()
+
+    return () => {
+      controller.abort() // Cancel any pending requests on unmount
+    }
   }, [projectId])
 
   async function loadCategorizedIssues() {
     setLoading(true)
+    setError(null)
     try {
-      const res = await fetch(API_ENDPOINTS.categorizedIssues(projectId))
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      const res = await fetch(API_ENDPOINTS.categorizedIssues(projectId), {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
+
       if (!res.ok) throw new Error('Failed to load issues')
       const data = await res.json()
       setIssues(data.issues || [])
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load categorized issues:', e)
+      if (e.name === 'AbortError') {
+        setError('Request timed out. Please check your connection.')
+      } else {
+        setError(e.message || 'Failed to load categorized issues')
+      }
     } finally {
       setLoading(false)
     }
@@ -68,16 +95,30 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
 
   async function loadStats() {
     try {
-      const res = await fetch(API_ENDPOINTS.categoryStats(projectId))
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      const res = await fetch(API_ENDPOINTS.categoryStats(projectId), {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
+
       if (!res.ok) return
       const data = await res.json()
       setStats(data)
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load stats:', e)
+      // Stats are not critical, so don't show error to user
     }
   }
 
   async function handleCategorizeAll() {
+    // Prevent multiple simultaneous categorization operations from rapid clicks
+    if (categorizingRef.current) {
+      return
+    }
+
+    categorizingRef.current = true
     setCategorizing(true)
     try {
       const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
@@ -85,13 +126,26 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
       })
       if (!res.ok) throw new Error('Failed to start categorization')
 
-      // Poll for completion
-      await new Promise(resolve => setTimeout(resolve, 5000))
-      await loadCategorizedIssues()
-      await loadStats()
+      // Poll for updates with exponential backoff
+      let attempts = 0
+      const maxAttempts = 15 // Max 15 attempts
+
+      while (attempts < maxAttempts) {
+        // Wait with increasing intervals: 2s, 3s, 4.5s, 6.75s, up to max 10s
+        const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+
+        // Reload data to show progress
+        await loadCategorizedIssues()
+        await loadStats()
+
+        attempts++
+      }
     } catch (e) {
       console.error('Failed to categorize:', e)
+      alert('Failed to categorize issues. Please try again.')
     } finally {
+      categorizingRef.current = false
       setCategorizing(false)
     }
   }
@@ -231,7 +285,19 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
+        {error ? (
+          <div className="flex flex-col items-center justify-center h-64">
+            <div className="text-center max-w-md">
+              <p className="text-red-600 dark:text-red-400 font-semibold mb-2">{error}</p>
+              <button
+                onClick={() => { loadCategorizedIssues(); loadStats(); }}
+                className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
@@ -316,7 +382,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
                           <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Issues:</h5>
                           <div className="space-y-1">
                             {issue.related_issues.map(num => (
-                              <div key={num} className="text-blue-600 dark:text-blue-400 text-sm">#{num}</div>
+                              <div key={`issue-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">#{num}</div>
                             ))}
                           </div>
                         </div>
@@ -326,7 +392,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
                           <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related PRs:</h5>
                           <div className="space-y-1">
                             {issue.related_prs.map(num => (
-                              <div key={num} className="text-blue-600 dark:text-blue-400 text-sm">PR #{num}</div>
+                              <div key={`pr-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">PR #{num}</div>
                             ))}
                           </div>
                         </div>

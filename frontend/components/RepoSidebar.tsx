@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Github, Trash2 } from 'lucide-react'
+import { Github, Trash2, Settings } from 'lucide-react'
 import DeleteRepoModal from './DeleteRepoModal'
 import { API_ENDPOINTS } from '@/lib/config'
 
@@ -90,16 +90,26 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
         <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">
           Repositories
         </h2>
-        <button
-          type="button"
-          onClick={onNewRepo}
-          className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
-          title="Index New Repository"
-        >
-          <svg className="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onSettingsClick}
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            title="Settings - Configure API Keys"
+          >
+            <Settings className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+          </button>
+          <button
+            type="button"
+            onClick={onNewRepo}
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            title="Index New Repository"
+          >
+            <svg className="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Repository List - Scrollable */}

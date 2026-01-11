@@ -225,12 +225,9 @@ class GitHubService:
         else:
             raise ValueError(f"Invalid GitHub URL: {github_url}")
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=2.0)
     def import_issues(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
         Import issues from a GitHub repository.
-
-        Automatically retries on transient GitHub API errors with exponential backoff.
 
         Args:
             project_id: Project identifier
@@ -240,6 +237,8 @@ class GitHubService:
         Returns:
             Dictionary with import statistics
         """
+        conn = None
+        cur = None
         try:
             # Check rate limit before starting
             rate_limit_check = self.check_rate_limit(required_calls=10)
@@ -387,8 +386,6 @@ class GitHubService:
 
             # Final commit
             conn.commit()
-            cur.close()
-            conn.close()
 
             # Get final rate limit status
             final_rate_check = self.check_rate_limit(required_calls=0)
@@ -428,13 +425,22 @@ class GitHubService:
                 "status": "error",
                 "message": f"Import failed: {str(e)}"
             }
+        finally:
+            # Always close database connections, even on exceptions
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=2.0)
     def import_pull_requests(self, project_id: str, github_url: str, limit: Optional[int] = None) -> Dict:
         """
         Import pull requests from a GitHub repository.
-
-        Automatically retries on transient GitHub API errors with exponential backoff.
 
         Args:
             project_id: Project identifier
@@ -444,6 +450,8 @@ class GitHubService:
         Returns:
             Dictionary with import statistics
         """
+        conn = None
+        cur = None
         try:
             # Check rate limit before starting
             rate_limit_check = self.check_rate_limit(required_calls=10)
@@ -613,8 +621,6 @@ class GitHubService:
 
             # Final commit
             conn.commit()
-            cur.close()
-            conn.close()
 
             # Get final rate limit status
             final_rate_check = self.check_rate_limit(required_calls=0)
@@ -654,6 +660,18 @@ class GitHubService:
                 "status": "error",
                 "message": f"Import failed: {str(e)}"
             }
+        finally:
+            # Always close database connections, even on exceptions
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_issues_for_project(self, project_id: str, state: Optional[str] = None) -> List[Dict]:
         """

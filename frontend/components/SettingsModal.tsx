@@ -16,6 +16,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [showWebhookInstructions, setShowWebhookInstructions] = useState(false)
   const [webhookCopied, setWebhookCopied] = useState(false)
+  const [testingToken, setTestingToken] = useState(false)
+  const [tokenTestResult, setTokenTestResult] = useState<{ valid: boolean, message: string } | null>(null)
 
   // Load existing keys on mount
   useEffect(() => {
@@ -43,6 +45,39 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     navigator.clipboard.writeText(webhookUrl)
     setWebhookCopied(true)
     setTimeout(() => setWebhookCopied(false), 2000)
+  }
+
+  async function testGitHubToken() {
+    setTestingToken(true)
+    setTokenTestResult(null)
+
+    try {
+      const res = await fetch(API_ENDPOINTS.validateToken(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: githubToken })
+      })
+      const data = await res.json()
+
+      if (data.valid) {
+        setTokenTestResult({
+          valid: true,
+          message: `✅ Token valid! Username: ${data.username}, Rate limit: ${data.rate_limit}/hour`
+        })
+      } else {
+        setTokenTestResult({
+          valid: false,
+          message: `❌ ${data.error || 'Token validation failed'}`
+        })
+      }
+    } catch (e: any) {
+      setTokenTestResult({
+        valid: false,
+        message: `❌ Test failed: ${e.message || 'Network error'}`
+      })
+    } finally {
+      setTestingToken(false)
+    }
   }
 
   async function handleSave() {
@@ -170,13 +205,32 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </svg>
               </a>
             </div>
-            <input
-              type="password"
-              value={githubToken}
-              onChange={(e) => setGithubToken(e.target.value)}
-              placeholder="github_pat_..."
-              className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-            />
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                placeholder="github_pat_..."
+                className="flex-1 px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={testGitHubToken}
+                disabled={testingToken}
+                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md text-xs font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {testingToken ? 'Testing...' : 'Test Token'}
+              </button>
+            </div>
+            {tokenTestResult && (
+              <div className={`mt-2 px-3 py-2 rounded-md text-xs ${
+                tokenTestResult.valid
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+              }`}>
+                {tokenTestResult.message}
+              </div>
+            )}
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               For syncing issues and PRs. Increases rate limit from 60 to 5,000 requests/hour.{' '}
               <a

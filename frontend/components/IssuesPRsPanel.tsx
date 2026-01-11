@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
@@ -50,6 +50,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showTokenPrompt, setShowTokenPrompt] = useState(false)
 
+  // Ref for immediate race condition checking
+  const importingRef = useRef(false)
+
   // Reset UI state when switching repositories
   useEffect(() => {
     setError(null)
@@ -60,11 +63,21 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   }, [projectId])
 
   useEffect(() => {
-    checkGithubToken()
-    if (activeTab === 'issues') {
-      loadIssues()
-    } else {
-      loadPRs()
+    const controller = new AbortController()
+
+    async function loadData() {
+      await checkGithubToken()
+      if (activeTab === 'issues') {
+        await loadIssues()
+      } else {
+        await loadPRs()
+      }
+    }
+
+    loadData()
+
+    return () => {
+      controller.abort() // Cancel any pending requests on unmount
     }
   }, [projectId, activeTab, issueFilter, prFilter])
 
@@ -82,8 +95,14 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setLoading(true)
     setError(null)
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
       const stateParam = issueFilter === 'all' ? '' : `?state=${issueFilter}`
-      const res = await fetch(`${API_ENDPOINTS.githubIssues(projectId)}${stateParam}`)
+      const res = await fetch(`${API_ENDPOINTS.githubIssues(projectId)}${stateParam}`, {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
 
       if (!res.ok) {
         const data = await res.json()
@@ -93,6 +112,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       const data = await res.json()
       setIssues(data.issues || [])
     } catch (e: any) {
+      if (e.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load issues:', e)
       setError(e.message || 'Failed to load issues. Please try again.')
     } finally {
@@ -104,8 +124,14 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setLoading(true)
     setError(null)
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
       const stateParam = prFilter === 'all' ? '' : `?state=${prFilter}`
-      const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`)
+      const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`, {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
 
       if (!res.ok) {
         const data = await res.json()
@@ -115,6 +141,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       const data = await res.json()
       setPrs(data.pull_requests || [])
     } catch (e: any) {
+      if (e.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load PRs:', e)
       setError(e.message || 'Failed to load pull requests. Please try again.')
     } finally {
@@ -129,6 +156,12 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       return
     }
 
+    // Prevent multiple simultaneous import operations from rapid clicks
+    if (importingRef.current) {
+      return
+    }
+
+    importingRef.current = true
     setImporting(true)
     setError(null)
     setImportSuccess(false)
@@ -170,6 +203,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       console.error('Failed to import:', e)
       setError(e.message || 'Failed to import from GitHub. Please check your settings and try again.')
     } finally {
+      importingRef.current = false
       setImporting(false)
     }
   }

@@ -86,9 +86,15 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
 
   // Load uncategorized issues
   useEffect(() => {
-    if (isOpen) {
-      loadUncategorizedIssues()
-      setAnalyzedIssues(new Map()) // Clear cache on open
+    if (!isOpen) return
+
+    const controller = new AbortController()
+
+    loadUncategorizedIssues()
+    setAnalyzedIssues(new Map()) // Clear cache on open
+
+    return () => {
+      controller.abort() // Cancel any pending requests on unmount
     }
   }, [isOpen, projectId])
 
@@ -172,7 +178,14 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
   async function loadUncategorizedIssues() {
     try {
       setLoading(true)
-      const res = await fetch(API_ENDPOINTS.triageUncategorized(projectId))
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      const res = await fetch(API_ENDPOINTS.triageUncategorized(projectId), {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
 
       if (!res.ok) {
         throw new Error('Failed to load issues')
@@ -182,8 +195,10 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       setIssues(data)
       setCurrentIndex(0)
       setAnalysis(null)
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load uncategorized issues:', err)
+      alert(`Failed to load issues: ${err.message || 'Unknown error'}`)
     } finally {
       setLoading(false)
     }
@@ -447,7 +462,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
                           <div className="text-sm text-gray-600 dark:text-gray-400">
                             <span className="font-medium">Related PRs:</span>{' '}
                             {analysis.related_prs.map((pr, i) => (
-                              <span key={pr}>
+                              <span key={`pr-${pr}`}>
                                 <span className="text-blue-600 dark:text-blue-400">#{pr}</span>
                                 {i < analysis.related_prs.length - 1 && ', '}
                               </span>

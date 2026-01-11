@@ -116,7 +116,18 @@ WEBHOOK_URL=https://api.yourdomain.com/api/webhooks/github
 
 # Optional
 DATA_DIR=./data
-```
+```Error importing PR #1419: the connection is lost
+Error importing PR #1418: the connection is lost
+Error importing PR #1412: the connection is lost
+
+harsh@Harshs-MacBook-Air code-qa % 
+harsh@Harshs-MacBook-Air code-qa % Error importing PR #1417: the connection is lost
+Error importing PR #1414: the connection is lost
+Error importing PR #1413: the connection is lost
+Error importing PR #1380: the connection is lost
+Error importing PR #1408: the connection is lost
+Error importing PR #1407: the connection is lost
+
 
 **Frontend** (`frontend/.env.local`):
 ```bash

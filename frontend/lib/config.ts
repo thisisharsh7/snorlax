@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
   deleteRepo: (projectId: string) => apiUrl(`/api/repositories/${projectId}`),
 
   // GitHub integration
+  validateToken: () => apiUrl('/api/github/validate-token'),
   importIssues: (projectId: string) => apiUrl(`/api/github/import-issues/${projectId}`),
   importPRs: (projectId: string) => apiUrl(`/api/github/import-prs/${projectId}`),
   githubIssues: (projectId: string) => apiUrl(`/api/github/issues/${projectId}`),

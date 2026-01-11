@@ -5,10 +5,16 @@ from pydantic import BaseModel
 from typing import Optional
 import os
 
-from utils.database import get_db_connection
+from utils.database import get_db_connection, get_db_connection_ctx
 from services.github.api import GitHubService
+from github import Github, GithubException, RateLimitExceededException
 
 router = APIRouter(prefix="/api/github", tags=["github"])
+
+
+class ValidateTokenRequest(BaseModel):
+    """Request model for token validation."""
+    token: str
 
 
 def get_github_service() -> GitHubService:
@@ -20,6 +26,74 @@ def get_github_service() -> GitHubService:
     """
     token = os.getenv("GITHUB_TOKEN")
     return GitHubService(github_token=token)
+
+
+@router.post("/validate-token")
+async def validate_github_token(request: ValidateTokenRequest):
+    """
+    Validate a GitHub token.
+
+    Args:
+        request: Request body containing the token to validate
+
+    Returns:
+        Token validation status with rate limit info
+    """
+    try:
+        token = request.token.strip() if request.token else ""
+
+        if not token:
+            return {
+                "valid": False,
+                "error": "No GitHub token provided",
+                "type": "missing_token"
+            }
+
+        # Try to authenticate with the token
+        github = Github(token)
+
+        try:
+            user = github.get_user()
+            login = user.login  # This will fail if token is invalid
+
+            # Get rate limit info
+            rate_limit = github.get_rate_limit()
+            core_limit = rate_limit.resources.core
+
+            return {
+                "valid": True,
+                "username": login,
+                "rate_limit": core_limit.limit,
+                "remaining": core_limit.remaining,
+                "reset_time": core_limit.reset.timestamp() if core_limit.reset else None
+            }
+
+        except GithubException as e:
+            if e.status == 401:
+                return {
+                    "valid": False,
+                    "error": "GitHub token is invalid or expired",
+                    "type": "invalid_token"
+                }
+            elif e.status == 403:
+                return {
+                    "valid": False,
+                    "error": "GitHub token has insufficient permissions",
+                    "type": "insufficient_permissions"
+                }
+            else:
+                return {
+                    "valid": False,
+                    "error": f"GitHub API error: {str(e)}",
+                    "type": "api_error"
+                }
+
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": f"Validation failed: {str(e)}",
+            "type": "unknown_error"
+        }
 
 
 @router.post("/import-issues/{project_id}")
@@ -39,15 +113,14 @@ async def import_github_issues(
     """
     try:
         # Get repository URL from database
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT repo_url FROM repositories WHERE project_id = %s",
-            (project_id,)
-        )
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT repo_url FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+            cur.close()
 
         if not result:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -80,15 +153,14 @@ async def import_github_issues(
             )
 
         # Update last_synced_at timestamp
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
-            (project_id,)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+                (project_id,)
+            )
+            conn.commit()
+            cur.close()
 
         return result
 
@@ -118,15 +190,14 @@ async def import_github_prs(
     """
     try:
         # Get repository URL from database
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT repo_url FROM repositories WHERE project_id = %s",
-            (project_id,)
-        )
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT repo_url FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+            cur.close()
 
         if not result:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -159,15 +230,14 @@ async def import_github_prs(
             )
 
         # Update last_synced_at timestamp
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
-            (project_id,)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+                (project_id,)
+            )
+            conn.commit()
+            cur.close()
 
         return result
 

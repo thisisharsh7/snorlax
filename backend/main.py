@@ -11,13 +11,16 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from utils.database import get_db_connection, load_settings_from_db
+from utils.database import get_db_connection, get_db_connection_ctx, load_settings_from_db
 from api import repositories, github, settings, categorization, triage, webhooks
 
 load_dotenv()
 
 # Load settings from database on startup
 load_settings_from_db()
+
+# Global shutdown flag
+shutdown_requested = False
 
 # Initialize rate limiter
 # Key function determines how to identify clients (by IP address)
@@ -63,6 +66,24 @@ app.include_router(triage.router)
 app.include_router(webhooks.router)
 
 
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Initialize on startup."""
+    print("✓ Issue Triage API started")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Gracefully shutdown."""
+    global shutdown_requested
+    shutdown_requested = True
+    print("\n⚠ Shutdown requested - cleaning up...")
+    # Note: Background tasks will check shutdown_requested flag
+    # and terminate gracefully
+    print("✓ Cleanup complete")
+
+
 # Root endpoints
 @app.get("/")
 async def root():
@@ -88,11 +109,10 @@ async def health():
     """Health check endpoint."""
     try:
         # Check database connection
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.close()
-        conn.close()
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}

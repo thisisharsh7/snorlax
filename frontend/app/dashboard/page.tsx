@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
@@ -38,6 +38,9 @@ export default function Dashboard() {
   const [isDark, setIsDark] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncAbortController, setSyncAbortController] = useState<AbortController | null>(null)
+
+  // Ref for immediate race condition checking
+  const syncingRef = useRef(false)
 
   // Initialize dark mode
   useEffect(() => {
@@ -160,12 +163,19 @@ export default function Dashboard() {
     if (syncAbortController) {
       syncAbortController.abort()
       setSyncAbortController(null)
+      syncingRef.current = false
       setSyncing(false)
       alert('Sync cancelled')
       return
     }
 
+    // Prevent multiple simultaneous sync operations from rapid clicks
+    if (syncingRef.current) {
+      return
+    }
+
     // Create new abort controller for this sync operation
+    syncingRef.current = true
     const controller = new AbortController()
     setSyncAbortController(controller)
     setSyncing(true)
@@ -228,6 +238,7 @@ export default function Dashboard() {
       console.error('Failed to sync:', e)
       alert(`❌ Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
     } finally {
+      syncingRef.current = false
       setSyncAbortController(null)
       setSyncing(false)
     }
