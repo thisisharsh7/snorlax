@@ -478,7 +478,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
                         <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Suggested Responses</h4>
                         <div className="space-y-3">
                           {analysis.suggested_responses.map((response, index) => (
-                            <div key={index} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                            <div key={`response-${analysis.issue_number}-${index}-${response.type}`} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                               <div className="flex justify-between items-start mb-2">
                                 <span className="font-medium text-sm text-gray-900 dark:text-white">{response.title}</span>
                                 <div className="flex gap-2">

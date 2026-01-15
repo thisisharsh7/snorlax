@@ -181,8 +181,8 @@ export default function IssueDetailModal({ projectId, issueNumber, onClose }: Pr
                         ✓ Already Implemented In:
                       </h4>
                       <div className="bg-white dark:bg-gray-800 rounded p-3 border border-gray-200 dark:border-gray-700">
-                        {issue.ai_analysis.matching_files.map((file, idx) => (
-                          <div key={idx} className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+                        {issue.ai_analysis.matching_files.map((file) => (
+                          <div key={`matching-file-${file}`} className="text-sm text-gray-700 dark:text-gray-300 font-mono">
                             📄 {file}
                           </div>
                         ))}
@@ -242,9 +242,9 @@ export default function IssueDetailModal({ projectId, issueNumber, onClose }: Pr
                     Labels
                   </h3>
                   <div className="flex gap-2 flex-wrap">
-                    {issue.labels.map((label, idx) => (
+                    {issue.labels.map((label) => (
                       <span
-                        key={idx}
+                        key={`modal-label-${issue.issue_number}-${label}`}
                         className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full text-sm"
                       >
                         {label}

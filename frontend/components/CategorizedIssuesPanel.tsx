@@ -303,8 +303,8 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
           </div>
         ) : activeTab === 'theme_cluster' && themeClusters.length > 0 ? (
           <div className="space-y-6">
-            {themeClusters.map((cluster, idx) => (
-              <div key={idx} className="bg-white dark:bg-gray-900 rounded-lg border-2 border-purple-200 dark:border-purple-800 p-6">
+            {themeClusters.map((cluster) => (
+              <div key={`theme-${cluster.theme_name}`} className="bg-white dark:bg-gray-900 rounded-lg border-2 border-purple-200 dark:border-purple-800 p-6">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
                   📦 {cluster.theme_name}
                 </h3>
@@ -314,7 +314,7 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
                 <div className="space-y-2">
                   {cluster.issues.map(issue => (
                     <div
-                      key={issue.issue_number}
+                      key={`cluster-${cluster.theme_name}-issue-${issue.issue_number}`}
                       onClick={() => setSelectedIssue(issue)}
                       className="p-3 bg-purple-50 dark:bg-purple-900/10 rounded border border-purple-100 dark:border-purple-800 hover:border-purple-300 dark:hover:border-purple-600 cursor-pointer transition-colors"
                     >
@@ -401,8 +401,8 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
                         <div>
                           <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Files:</h5>
                           <div className="space-y-1">
-                            {issue.related_files.slice(0, 3).map((file, idx) => (
-                              <div key={idx} className="text-gray-600 dark:text-gray-400 text-xs font-mono truncate">
+                            {issue.related_files.slice(0, 3).map((file) => (
+                              <div key={`file-${issue.issue_number}-${file}`} className="text-gray-600 dark:text-gray-400 text-xs font-mono truncate">
                                 {file}
                               </div>
                             ))}

@@ -383,8 +383,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                       </div>
                       {issue.labels.length > 0 && (
                         <div className="flex gap-2 mt-2 flex-wrap">
-                          {issue.labels.map((label, idx) => (
-                            <span key={idx} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
+                          {issue.labels.map((label) => (
+                            <span key={`issue-${issue.number}-label-${label}`} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
                               {label}
                             </span>
                           ))}
@@ -429,8 +429,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                       </div>
                       {pr.labels.length > 0 && (
                         <div className="flex gap-2 mt-2 flex-wrap">
-                          {pr.labels.map((label, idx) => (
-                            <span key={idx} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
+                          {pr.labels.map((label) => (
+                            <span key={`pr-${pr.number}-label-${label}`} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
                               {label}
                             </span>
                           ))}
