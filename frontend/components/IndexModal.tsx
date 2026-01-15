@@ -29,6 +29,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
   const [projectId, setProjectId] = useState<string | null>(null)
   const [stages, setStages] = useState<Stage[]>(INITIAL_STAGES)
   const [complete, setComplete] = useState(false)
+  const [importStarted, setImportStarted] = useState(false)
 
   // Reset state when modal opens
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
       setProjectId(null)
       setStages(INITIAL_STAGES)
       setComplete(false)
+      setImportStarted(false)
     }
   }, [isOpen])
 
@@ -54,14 +56,21 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
         const data = await res.json()
 
         if (data.status === 'indexed') {
+          // Check if import already started (prevents re-entry from queued intervals)
+          if (importStarted) return
+
+          // Mark as started before any async work
+          setImportStarted(true)
+
+          // Stop polling immediately to prevent duplicate imports
+          clearInterval(interval)
+
           // Update stages to show indexing complete
           updateStage('clone', 'completed')
           updateStage('index', 'completed')
 
-          // Start importing issues
+          // Start importing issues (now only runs once)
           await importIssuesAndPRs()
-
-          clearInterval(interval)
         } else if (data.status === 'indexing') {
           // Show progress
           updateStage('clone', 'completed')

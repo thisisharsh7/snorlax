@@ -9,7 +9,7 @@ import logging
 from typing import List, Dict, Optional, Callable, Any
 from functools import wraps
 import psycopg
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -514,7 +514,8 @@ class GitHubService:
                     break
 
                 # Skip PRs not updated since last sync (for incremental sync)
-                if last_sync and pr.updated_at < last_sync:
+                # Make pr.updated_at timezone-aware to compare with timezone-aware last_sync from DB
+                if last_sync and pr.updated_at.replace(tzinfo=timezone.utc) < last_sync:
                     skipped_count += 1
                     continue
 
