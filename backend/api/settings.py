@@ -1,6 +1,6 @@
 """Settings management API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Request
 import os
 from typing import Optional
 from slowapi import Limiter
@@ -8,7 +8,6 @@ from slowapi.util import get_remote_address
 
 from models.settings import SettingsRequest, SettingsResponse
 from utils.database import get_db_connection
-from utils.security import verify_admin_credentials
 
 # Initialize rate limiter for this router
 limiter = Limiter(key_func=get_remote_address)
@@ -125,38 +124,24 @@ async def get_settings():
 
 
 @router.post("/settings")
-@limiter.limit("10/minute")  # Allow 10 attempts per minute to prevent brute force
+@limiter.limit("30/minute")  # Rate limit to prevent abuse
 async def save_settings(
     request: Request,
-    settings: SettingsRequest,
-    admin: str = Depends(verify_admin_credentials)
+    settings: SettingsRequest
 ):
     """
     Save API settings (keys are stored securely in database).
 
-    **Protected Endpoint**: Requires admin authentication (HTTP Basic Auth).
-
-    **Rate Limit**: 10 requests per minute per IP to prevent brute force attacks.
+    **Rate Limit**: 30 requests per minute per IP to prevent abuse.
 
     Args:
         settings: SettingsRequest with optional API keys
-        admin: Admin username (injected by authentication dependency)
 
     Returns:
         Success message
 
-    Raises:
-        HTTPException: 401 if authentication fails
-        HTTPException: 500 if admin password not configured
-
-    Authentication:
-        - Method: HTTP Basic Auth
-        - Username: Set via ADMIN_USERNAME env var (default: "admin")
-        - Password: Set via ADMIN_PASSWORD env var (required)
-
     Example:
         curl -X POST http://localhost:8000/api/settings \\
-             -u admin:your-password \\
              -H "Content-Type: application/json" \\
              -d '{"ai_provider": "anthropic", "anthropic_api_key": "sk-..."}'
     """

@@ -11,11 +11,8 @@ interface SettingsModalProps {
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-  const [showWebhookInstructions, setShowWebhookInstructions] = useState(false)
-  const [webhookCopied, setWebhookCopied] = useState(false)
   const [testingToken, setTestingToken] = useState(false)
   const [tokenTestResult, setTokenTestResult] = useState<{ valid: boolean, message: string } | null>(null)
 
@@ -40,14 +37,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   }
 
-  function copyWebhookUrl() {
-    const webhookUrl = API_ENDPOINTS.webhookEndpoint()
-    navigator.clipboard.writeText(webhookUrl)
-    setWebhookCopied(true)
-    setTimeout(() => setWebhookCopied(false), 2000)
-  }
-
   async function testGitHubToken() {
+    // Don't test masked tokens
+    if (!githubToken || githubToken.startsWith('••')) {
+      setTokenTestResult({
+        valid: false,
+        message: '❌ Cannot test a masked token. Please enter a new token to test.'
+      })
+      return
+    }
+
     setTestingToken(true)
     setTokenTestResult(null)
 
@@ -85,11 +84,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setMessage(null)
 
     try {
-      // Validate admin password is provided
-      if (!adminPassword) {
-        throw new Error('Admin password is required to save settings')
-      }
-
       // Helper to determine what to send for each key
       const processKey = (value: string) => {
         if (value === '••••••••••••••••') return undefined  // Masked - don't change
@@ -97,15 +91,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return value  // New value - update
       }
 
-      // Create Basic Auth header
-      const adminUsername = 'admin' // Default username
-      const credentials = btoa(`${adminUsername}:${adminPassword}`)
-
       const res = await fetch(API_ENDPOINTS.settings(), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${credentials}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           ai_provider: 'anthropic',
@@ -116,14 +105,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (!res.ok) {
         const data = await res.json()
-        if (res.status === 401) {
-          throw new Error('Invalid admin password')
-        }
         throw new Error(data.detail || 'Failed to save settings')
       }
 
       setMessage({ type: 'success', text: 'Settings saved successfully!' })
-      setAdminPassword('') // Clear password on success
       setTimeout(() => {
         onClose()
       }, 1500)
@@ -216,8 +201,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <button
                 type="button"
                 onClick={testGitHubToken}
-                disabled={testingToken}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md text-xs font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+                disabled={testingToken || !githubToken || githubToken.startsWith('••')}
+                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
               >
                 {testingToken ? 'Testing...' : 'Test Token'}
               </button>
@@ -241,79 +226,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               >
                 Create token
               </a>
-            </p>
-          </div>
-
-          {/* Admin Password - Required for Saving */}
-          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-1 mb-1">
-              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                Admin Password <span className="text-red-600">*</span>
-              </label>
-              <span className="text-xs text-gray-500 dark:text-gray-400">(Required to save changes)</span>
-            </div>
-            <input
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Enter admin password"
-              className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Set via <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ADMIN_PASSWORD</code> environment variable in backend. Default username: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">admin</code>
-            </p>
-          </div>
-
-          {/* Webhook Setup */}
-          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                GitHub Webhook (Real-time Updates)
-              </label>
-              <button
-                onClick={() => setShowWebhookInstructions(!showWebhookInstructions)}
-                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                {showWebhookInstructions ? 'Hide Instructions' : 'Show Instructions'}
-              </button>
-            </div>
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={API_ENDPOINTS.webhookEndpoint()}
-                readOnly
-                className="flex-1 px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-              />
-              <button
-                onClick={copyWebhookUrl}
-                className="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-md text-xs font-medium transition-colors"
-              >
-                {webhookCopied ? '✓ Copied' : 'Copy'}
-              </button>
-            </div>
-
-            {showWebhookInstructions && (
-              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
-                <h4 className="text-xs font-semibold text-gray-900 dark:text-white mb-2">Setup Instructions:</h4>
-                <ol className="text-xs text-gray-700 dark:text-gray-300 space-y-1 list-decimal list-inside">
-                  <li>Go to your repository on GitHub</li>
-                  <li>Navigate to Settings → Webhooks → Add webhook</li>
-                  <li>Paste the webhook URL above</li>
-                  <li>Set Content type to: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">application/json</code></li>
-                  <li>Set a secure secret (optional, for production)</li>
-                  <li>Select: <strong>Issues</strong> and <strong>Pull requests</strong> events</li>
-                  <li>Ensure Active is checked</li>
-                  <li>Click "Add webhook"</li>
-                </ol>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
-                  ℹ️ Webhooks enable real-time updates when issues or PRs are created/modified.
-                </p>
-              </div>
-            )}
-
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-              Enable webhooks to automatically sync issues and PRs when they change.
             </p>
           </div>
 
