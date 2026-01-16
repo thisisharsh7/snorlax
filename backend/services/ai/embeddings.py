@@ -110,9 +110,9 @@ class IssueEmbeddingService:
                 # Store in issue_embeddings table (type='pr')
                 cur.execute("""
                     INSERT INTO issue_embeddings
-                        (project_id, pr_number, type, embedding)
+                        (project_id, issue_number, type, embedding)
                     VALUES (%s, %s, 'pr', %s)
-                    ON CONFLICT (project_id, type, pr_number)
+                    ON CONFLICT (project_id, type, issue_number)
                     DO UPDATE SET
                         embedding = EXCLUDED.embedding,
                         updated_at = NOW()

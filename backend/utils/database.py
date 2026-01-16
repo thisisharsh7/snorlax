@@ -12,6 +12,11 @@ def get_db_connection():
     return psycopg.connect(os.getenv("APP_DATABASE_URL"))
 
 
+def get_db_connection_string():
+    """Get database connection string for CocoIndex and other tools."""
+    return os.getenv("APP_DATABASE_URL")
+
+
 @contextmanager
 def get_db_connection_ctx() -> Generator[psycopg.Connection, None, None]:
     """

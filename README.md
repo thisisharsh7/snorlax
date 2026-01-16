@@ -45,6 +45,23 @@ make clean      # Stop all services
 - Backend: FastAPI, Python
 - Database: PostgreSQL with pgvector
 - AI: Claude Sonnet 4.5
+- Embeddings: CocoIndex (automatic real-time sync)
+
+## How It Works
+
+**Automatic Issue Sync:**
+
+1. User adds repository → Snorlax clones and indexes code
+2. CocoIndex starts watching the database for changes
+3. When issues are fetched from GitHub → PostgreSQL triggers fire
+4. CocoIndex automatically generates embeddings in real-time
+5. UI always shows fresh data (no manual sync needed)
+
+**Benefits:**
+- 🔄 Real-time: Embeddings update within seconds
+- 🤖 Automatic: No manual "Sync" button needed
+- ⚡ Efficient: Only changed issues are reprocessed
+- 🎯 Consistent: Uses same embedding model as code
 
 ## Configuration
 
