@@ -499,119 +499,131 @@ class GitHubService:
 
             print(f"Importing up to {limit if limit else 'all'} NEW PRs (DB has {len(existing_prs)} existing)...")
 
-            for pr in prs:
-                fetched_count += 1
+            try:
+                for pr in prs:
+                    try:
+                        fetched_count += 1
 
-                # Stop if we've imported enough NEW items
-                if limit and imported_count >= limit:
-                    print(f"✓ Reached import limit of {limit} NEW PRs")
-                    break
+                        # Stop if we've imported enough NEW items
+                        if limit and imported_count >= limit:
+                            print(f"✓ Reached import limit of {limit} NEW PRs")
+                            break
 
-                # Safety check: stop if we've fetched way more than the limit
-                # (indicates mostly duplicates, prevents runaway API calls)
-                if limit and fetched_count >= limit * 2:
-                    print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
-                    break
+                        # Safety check: stop if we've fetched way more than the limit
+                        # (indicates mostly duplicates, prevents runaway API calls)
+                        if limit and fetched_count >= limit * 2:
+                            print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
+                            break
 
-                # Skip PRs not updated since last sync (for incremental sync)
-                # Make pr.updated_at timezone-aware to compare with timezone-aware last_sync from DB
-                if last_sync and pr.updated_at.replace(tzinfo=timezone.utc) < last_sync:
-                    skipped_count += 1
-                    continue
+                        # Skip PRs not updated since last sync (for incremental sync)
+                        # Make pr.updated_at timezone-aware to compare with timezone-aware last_sync from DB
+                        if last_sync and pr.updated_at:
+                            pr_updated_at = pr.updated_at.replace(tzinfo=timezone.utc) if pr.updated_at.tzinfo is None else pr.updated_at
+                            if pr_updated_at < last_sync:
+                                skipped_count += 1
+                                continue
 
-                # Rate limit monitoring every 50 items
-                if fetched_count % 50 == 0:
-                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, updated {updated_count}, skipped {skipped_count}")
-                    rate_check = self.check_rate_limit(required_calls=5)
-                    if not rate_check["sufficient"]:
-                        print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
-                        break
+                        # Rate limit monitoring every 50 items
+                        if fetched_count % 50 == 0:
+                            print(f"Progress: fetched {fetched_count}, imported {imported_count}, updated {updated_count}, skipped {skipped_count}")
+                            rate_check = self.check_rate_limit(required_calls=5)
+                            if not rate_check["sufficient"]:
+                                print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
+                                break
+                        # Extract labels
+                        labels = [label.name for label in pr.labels]
 
-                try:
-                    # Extract labels
-                    labels = [label.name for label in pr.labels]
+                        # Determine state
+                        if pr.merged:
+                            state = 'merged'
+                        else:
+                            state = pr.state
 
-                    # Determine state
-                    if pr.merged:
-                        state = 'merged'
-                    else:
-                        state = pr.state
+                        # Check if PR already exists
+                        if pr.number in existing_prs:
+                            # Update existing PR with latest data
+                            cur.execute("""
+                                UPDATE github_pull_requests SET
+                                    title = %s,
+                                    body = %s,
+                                    state = %s,
+                                    labels = %s,
+                                    updated_at = %s,
+                                    closed_at = %s,
+                                    merged_at = %s,
+                                    comments_count = %s,
+                                    review_comments_count = %s,
+                                    mergeable = %s
+                                WHERE project_id = %s AND pr_number = %s
+                            """, (
+                                pr.title,
+                                pr.body or "",
+                                state,
+                                labels,
+                                pr.updated_at,
+                                pr.closed_at,
+                                pr.merged_at,
+                                pr.comments,
+                                pr.review_comments,
+                                pr.mergeable,
+                                project_id,
+                                pr.number
+                            ))
+                            updated_count += 1
+                        else:
+                            # Insert new PR
+                            cur.execute("""
+                                INSERT INTO github_pull_requests (
+                                    project_id, pr_number, title, body, state,
+                                    author, labels, created_at, updated_at, closed_at,
+                                    merged_at, comments_count, review_comments_count,
+                                    commits_count, additions, deletions, changed_files,
+                                    github_url, head_branch, base_branch, mergeable
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """, (
+                                project_id,
+                                pr.number,
+                                pr.title,
+                                pr.body or "",
+                                state,
+                                pr.user.login if pr.user else "unknown",
+                                labels,
+                                pr.created_at,
+                                pr.updated_at,
+                                pr.closed_at,
+                                pr.merged_at,
+                                pr.comments,
+                                pr.review_comments,
+                                pr.commits,
+                                pr.additions,
+                                pr.deletions,
+                                pr.changed_files,
+                                pr.html_url,
+                                pr.head.ref if pr.head else None,
+                                pr.base.ref if pr.base else None,
+                                pr.mergeable
+                            ))
+                            imported_count += 1
+                            existing_prs.add(pr.number)  # Add to set to avoid re-importing
 
-                    # Check if PR already exists
-                    if pr.number in existing_prs:
-                        # Update existing PR with latest data
-                        cur.execute("""
-                            UPDATE github_pull_requests SET
-                                title = %s,
-                                body = %s,
-                                state = %s,
-                                labels = %s,
-                                updated_at = %s,
-                                closed_at = %s,
-                                merged_at = %s,
-                                comments_count = %s,
-                                review_comments_count = %s,
-                                mergeable = %s
-                            WHERE project_id = %s AND pr_number = %s
-                        """, (
-                            pr.title,
-                            pr.body or "",
-                            state,
-                            labels,
-                            pr.updated_at,
-                            pr.closed_at,
-                            pr.merged_at,
-                            pr.comments,
-                            pr.review_comments,
-                            pr.mergeable,
-                            project_id,
-                            pr.number
-                        ))
-                        updated_count += 1
-                    else:
-                        # Insert new PR
-                        cur.execute("""
-                            INSERT INTO github_pull_requests (
-                                project_id, pr_number, title, body, state,
-                                author, labels, created_at, updated_at, closed_at,
-                                merged_at, comments_count, review_comments_count,
-                                commits_count, additions, deletions, changed_files,
-                                github_url, head_branch, base_branch, mergeable
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (
-                            project_id,
-                            pr.number,
-                            pr.title,
-                            pr.body or "",
-                            state,
-                            pr.user.login if pr.user else "unknown",
-                            labels,
-                            pr.created_at,
-                            pr.updated_at,
-                            pr.closed_at,
-                            pr.merged_at,
-                            pr.comments,
-                            pr.review_comments,
-                            pr.commits,
-                            pr.additions,
-                            pr.deletions,
-                            pr.changed_files,
-                            pr.html_url,
-                            pr.head.ref if pr.head else None,
-                            pr.base.ref if pr.base else None,
-                            pr.mergeable
-                        ))
-                        imported_count += 1
-                        existing_prs.add(pr.number)  # Add to set to avoid re-importing
+                        # Commit every 100 items to save progress
+                        if (imported_count + updated_count) % 100 == 0:
+                            conn.commit()
+                            print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
 
-                    # Commit every 100 items to save progress
-                    if (imported_count + updated_count) % 100 == 0:
-                        conn.commit()
-                        print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
+                    except Exception as e:
+                        print(f"Error importing PR #{pr.number}: {str(e)}")
+                        continue
 
-                except Exception as e:
-                    print(f"Error importing PR #{pr.number}: {str(e)}")
-                    continue
+            except StopIteration:
+                # Normal end of pagination
+                print(f"Completed pagination: fetched {fetched_count} PRs")
+            except Exception as e:
+                # Catch errors during pagination (e.g., network issues, GitHub API errors)
+                print(f"⚠ Error during PR pagination: {str(e)}")
+                print(f"Stopping PR import. Successfully processed {imported_count} new, {updated_count} updated")
+                import traceback
+                traceback.print_exc()
 
             # Update last_prs_sync timestamp for incremental sync
             cur.execute("""

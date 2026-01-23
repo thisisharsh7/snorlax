@@ -152,6 +152,13 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
         throw new Error('Failed to import PRs')
       }
 
+      // Check if PR import had partial success
+      const prsData = await prsRes.json()
+      if (prsData.status === 'partial_success' && prsData.warning) {
+        console.warn('PR import partial success:', prsData.warning)
+        // Still mark as completed - partial success is acceptable
+      }
+
       // All done!
       updateStage('import', 'completed')
       updateStage('ready', 'completed')

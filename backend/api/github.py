@@ -220,14 +220,11 @@ async def import_github_prs(
                 }
             )
         elif result["status"] == "error":
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "message": result["message"],
-                    "error_code": result.get("error_code"),
-                    "type": "github_error"
-                }
-            )
+            # Don't throw 500 error - return partial success with warning
+            # This allows the import to complete even if some PRs failed
+            result["status"] = "partial_success"
+            result["warning"] = result.get("message", "Some PRs failed to import")
+            # Continue to update timestamp and return result below
 
         # Update last_synced_at timestamp
         with get_db_connection_ctx() as conn:
