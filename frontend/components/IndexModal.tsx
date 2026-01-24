@@ -134,36 +134,39 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
     try {
       updateStage('import', 'in_progress')
 
-      // Import issues
-      const issuesRes = await fetch(API_ENDPOINTS.importIssues(projectId), {
+      // Use new fast initial import endpoint
+      // This imports first 50 open issues + 50 open PRs, then starts background job
+      const res = await fetch(API_ENDPOINTS.importInitial(projectId), {
         method: 'POST'
       })
 
-      if (!issuesRes.ok) {
-        throw new Error('Failed to import issues')
+      if (!res.ok) {
+        throw new Error('Failed to start initial import')
       }
 
-      // Import PRs
-      const prsRes = await fetch(API_ENDPOINTS.importPRs(projectId), {
-        method: 'POST'
-      })
+      const data = await res.json()
 
-      if (!prsRes.ok) {
-        throw new Error('Failed to import PRs')
+      // Handle both new job and already-syncing cases
+      if (data.status === 'already_syncing') {
+        console.log('Sync already in progress:', data)
+        console.log(`Job ${data.job_id} is already running`)
+        // Still mark as complete since sync is happening
+        updateStage('import', 'completed')
+        updateStage('ready', 'completed')
+        setIndexing(false)
+        setComplete(true)
+      } else if (data.status === 'initial_complete') {
+        console.log('Initial import complete:', data)
+        console.log(`Imported ${data.issues.imported} issues and ${data.prs.imported} PRs`)
+        console.log('Background job started, will continue fetching remaining data')
+        // Initial batch imported successfully, background job is running
+        updateStage('import', 'completed')
+        updateStage('ready', 'completed')
+        setIndexing(false)
+        setComplete(true)
+      } else {
+        throw new Error('Unexpected response status')
       }
-
-      // Check if PR import had partial success
-      const prsData = await prsRes.json()
-      if (prsData.status === 'partial_success' && prsData.warning) {
-        console.warn('PR import partial success:', prsData.warning)
-        // Still mark as completed - partial success is acceptable
-      }
-
-      // All done!
-      updateStage('import', 'completed')
-      updateStage('ready', 'completed')
-      setIndexing(false)
-      setComplete(true)
     } catch (err: any) {
       console.error('Failed to import issues/PRs:', err)
       updateStage('import', 'error')

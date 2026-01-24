@@ -8,6 +8,7 @@ import time
 import logging
 from typing import List, Dict, Optional, Callable, Any
 from functools import wraps
+from itertools import islice
 import psycopg
 from datetime import datetime, timezone
 
@@ -675,6 +676,331 @@ class GitHubService:
             }
         finally:
             # Always close database connections, even on exceptions
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def import_issues_by_state(
+        self,
+        project_id: str,
+        state: str = 'open',
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict:
+        """
+        Import issues filtered by state (open/closed) with pagination.
+
+        Args:
+            project_id: Project identifier
+            state: State filter ('open' or 'closed')
+            limit: Maximum number of issues to import
+            offset: Number of issues to skip (for pagination)
+
+        Returns:
+            Dictionary with import statistics
+        """
+        conn = None
+        cur = None
+        try:
+            # Get repository URL from database
+            conn = self.get_db_connection()
+            cur = conn.cursor()
+
+            cur.execute(
+                "SELECT repo_url FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+
+            if not result:
+                return {
+                    "status": "error",
+                    "message": "Project not found",
+                    "imported": 0
+                }
+
+            repo_url = result[0]
+            repo_name = self.extract_repo_name_from_url(repo_url)
+            repo = self.github.get_repo(repo_name)
+
+            imported_count = 0
+            updated_count = 0
+            fetched_count = 0
+
+            # Pre-fetch existing issue numbers for fast O(1) lookup
+            cur.execute(
+                "SELECT issue_number FROM github_issues WHERE project_id = %s",
+                (project_id,)
+            )
+            existing_issues = set(row[0] for row in cur.fetchall())
+
+            # Fetch issues with state filter
+            issues = repo.get_issues(state=state, sort='updated', direction='desc')
+
+            logger.info(f"Fetching {state} issues: limit={limit}, offset={offset}")
+
+            # Use islice to skip offset items and take limit items
+            for issue in islice(issues, offset, offset + limit):
+                # Skip pull requests
+                if hasattr(issue, '_rawData') and issue._rawData.get('pull_request'):
+                    continue
+
+                fetched_count += 1
+
+                try:
+                    labels = [label.name for label in issue.labels]
+
+                    # Check if issue already exists
+                    if issue.number in existing_issues:
+                        # Update existing issue
+                        cur.execute("""
+                            UPDATE github_issues SET
+                                title = %s,
+                                body = %s,
+                                state = %s,
+                                labels = %s,
+                                updated_at = %s,
+                                closed_at = %s,
+                                comments_count = %s
+                            WHERE project_id = %s AND issue_number = %s
+                        """, (
+                            issue.title,
+                            issue.body or "",
+                            issue.state,
+                            labels,
+                            issue.updated_at,
+                            issue.closed_at,
+                            issue.comments,
+                            project_id,
+                            issue.number
+                        ))
+                        updated_count += 1
+                    else:
+                        # Insert new issue
+                        cur.execute("""
+                            INSERT INTO github_issues (
+                                project_id, issue_number, title, body, state,
+                                author, labels, created_at, updated_at, closed_at,
+                                comments_count, github_url
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            project_id,
+                            issue.number,
+                            issue.title,
+                            issue.body or "",
+                            issue.state,
+                            issue.user.login if issue.user else "unknown",
+                            labels,
+                            issue.created_at,
+                            issue.updated_at,
+                            issue.closed_at,
+                            issue.comments,
+                            issue.html_url
+                        ))
+                        imported_count += 1
+                        existing_issues.add(issue.number)
+
+                except Exception as e:
+                    logger.error(f"Error importing issue #{issue.number}: {str(e)}")
+                    continue
+
+            conn.commit()
+
+            return {
+                "status": "success",
+                "imported": imported_count,
+                "updated": updated_count,
+                "fetched": fetched_count,
+                "total": imported_count + updated_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error in import_issues_by_state: {str(e)}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "imported": 0
+            }
+        finally:
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def import_prs_by_state(
+        self,
+        project_id: str,
+        state: str = 'open',
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict:
+        """
+        Import PRs filtered by state (open/closed) with pagination.
+
+        Args:
+            project_id: Project identifier
+            state: State filter ('open' or 'closed')
+            limit: Maximum number of PRs to import
+            offset: Number of PRs to skip (for pagination)
+
+        Returns:
+            Dictionary with import statistics
+        """
+        conn = None
+        cur = None
+        try:
+            # Get repository URL from database
+            conn = self.get_db_connection()
+            cur = conn.cursor()
+
+            cur.execute(
+                "SELECT repo_url FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+
+            if not result:
+                return {
+                    "status": "error",
+                    "message": "Project not found",
+                    "imported": 0
+                }
+
+            repo_url = result[0]
+            repo_name = self.extract_repo_name_from_url(repo_url)
+            repo = self.github.get_repo(repo_name)
+
+            imported_count = 0
+            updated_count = 0
+            fetched_count = 0
+
+            # Pre-fetch existing PR numbers for fast O(1) lookup
+            cur.execute(
+                "SELECT pr_number FROM github_pull_requests WHERE project_id = %s",
+                (project_id,)
+            )
+            existing_prs = set(row[0] for row in cur.fetchall())
+
+            # Fetch PRs with state filter
+            prs = repo.get_pulls(state=state, sort='updated', direction='desc')
+
+            logger.info(f"Fetching {state} PRs: limit={limit}, offset={offset}")
+
+            # Use islice to skip offset items and take limit items
+            for pr in islice(prs, offset, offset + limit):
+                fetched_count += 1
+
+                try:
+                    labels = [label.name for label in pr.labels]
+
+                    # Determine state
+                    if pr.merged:
+                        pr_state = 'merged'
+                    else:
+                        pr_state = pr.state
+
+                    # Check if PR already exists
+                    if pr.number in existing_prs:
+                        # Update existing PR
+                        cur.execute("""
+                            UPDATE github_pull_requests SET
+                                title = %s,
+                                body = %s,
+                                state = %s,
+                                labels = %s,
+                                updated_at = %s,
+                                closed_at = %s,
+                                merged_at = %s,
+                                comments_count = %s,
+                                review_comments_count = %s,
+                                mergeable = %s
+                            WHERE project_id = %s AND pr_number = %s
+                        """, (
+                            pr.title,
+                            pr.body or "",
+                            pr_state,
+                            labels,
+                            pr.updated_at,
+                            pr.closed_at,
+                            pr.merged_at,
+                            pr.comments,
+                            pr.review_comments,
+                            pr.mergeable,
+                            project_id,
+                            pr.number
+                        ))
+                        updated_count += 1
+                    else:
+                        # Insert new PR
+                        cur.execute("""
+                            INSERT INTO github_pull_requests (
+                                project_id, pr_number, title, body, state,
+                                author, labels, created_at, updated_at, closed_at,
+                                merged_at, comments_count, review_comments_count,
+                                commits_count, additions, deletions, changed_files,
+                                github_url, head_branch, base_branch, mergeable
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            project_id,
+                            pr.number,
+                            pr.title,
+                            pr.body or "",
+                            pr_state,
+                            pr.user.login if pr.user else "unknown",
+                            labels,
+                            pr.created_at,
+                            pr.updated_at,
+                            pr.closed_at,
+                            pr.merged_at,
+                            pr.comments,
+                            pr.review_comments,
+                            pr.commits,
+                            pr.additions,
+                            pr.deletions,
+                            pr.changed_files,
+                            pr.html_url,
+                            pr.head.ref if pr.head else None,
+                            pr.base.ref if pr.base else None,
+                            pr.mergeable
+                        ))
+                        imported_count += 1
+                        existing_prs.add(pr.number)
+
+                except Exception as e:
+                    logger.error(f"Error importing PR #{pr.number}: {str(e)}")
+                    continue
+
+            conn.commit()
+
+            return {
+                "status": "success",
+                "imported": imported_count,
+                "updated": updated_count,
+                "fetched": fetched_count,
+                "total": imported_count + updated_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error in import_prs_by_state: {str(e)}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "imported": 0
+            }
+        finally:
             if cur:
                 try:
                     cur.close()

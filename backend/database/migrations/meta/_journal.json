@@ -64,6 +64,27 @@
       "when": 1735866000000,
       "tag": "0008_add_triage_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "1",
+      "when": 1737590400000,
+      "tag": "0009_add_issue_change_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "1",
+      "when": 1737633600000,
+      "tag": "0010_sync_jobs_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "1",
+      "when": 1737634800000,
+      "tag": "0011_unique_active_sync_jobs",
+      "breakpoints": true
     }
   ]
 }

@@ -186,7 +186,21 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
         throw new Error(data.detail || 'Failed to import pull requests from GitHub')
       }
 
-      setImportSuccess(true)
+      // Get detailed import statistics
+      const issuesData = await issuesRes.json()
+      const prsData = await prsRes.json()
+
+      // Check if we hit the limit (might have more data to import)
+      const issuesLimitReached = issuesData.imported >= 500
+      const prsLimitReached = prsData.imported >= 500
+
+      if (issuesLimitReached || prsLimitReached) {
+        setImportSuccess(true)
+        setError(`Successfully imported ${issuesData.imported} issues and ${prsData.imported} PRs. There may be more data available - click "Sync from GitHub" again to continue importing.`)
+      } else {
+        setImportSuccess(true)
+        console.log(`Import complete: ${issuesData.imported} new issues, ${prsData.imported} new PRs`)
+      }
 
       // Refresh the current view
       if (activeTab === 'issues') {
@@ -197,8 +211,11 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
       onImport()
 
-      // Hide success message after 3 seconds
-      setTimeout(() => setImportSuccess(false), 3000)
+      // Hide success message after 5 seconds (longer for large imports)
+      setTimeout(() => {
+        setImportSuccess(false)
+        setError(null)
+      }, 5000)
     } catch (e: any) {
       console.error('Failed to import:', e)
       setError(e.message || 'Failed to import from GitHub. Please check your settings and try again.')

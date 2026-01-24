@@ -1,12 +1,13 @@
 """GitHub integration API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 import os
 
 from utils.database import get_db_connection, get_db_connection_ctx
 from services.github.api import GitHubService
+from services.github.background_jobs import SyncJobManager, background_import_remaining
 from github import Github, GithubException, RateLimitExceededException
 
 router = APIRouter(prefix="/api/github", tags=["github"])
@@ -99,7 +100,7 @@ async def validate_github_token(request: ValidateTokenRequest):
 @router.post("/import-issues/{project_id}")
 async def import_github_issues(
     project_id: str,
-    limit: Optional[int] = Query(default=50, description="Max issues to import (default: 50)")
+    limit: Optional[int] = Query(default=500, description="Max NEW issues to import per sync (default: 500)")
 ):
     """
     Import GitHub issues for a project.
@@ -176,7 +177,7 @@ async def import_github_issues(
 @router.post("/import-prs/{project_id}")
 async def import_github_prs(
     project_id: str,
-    limit: Optional[int] = Query(default=50, description="Max PRs to import (default: 50)")
+    limit: Optional[int] = Query(default=500, description="Max NEW PRs to import per sync (default: 500)")
 ):
     """
     Import GitHub pull requests for a project.
@@ -343,4 +344,145 @@ async def post_issue_comment(project_id: str, issue_number: int, request: PostCo
         raise HTTPException(
             status_code=500,
             detail=f"Failed to post comment: {str(e)}"
+        )
+
+
+@router.post("/import-initial/{project_id}")
+async def import_initial_batch(
+    project_id: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Fast initial import: First 50 OPEN issues + 50 OPEN PRs.
+    Returns immediately, triggers background job for remaining data.
+
+    Args:
+        project_id: Project identifier
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Initial import results and background job ID
+    """
+    try:
+        # Get repository URL from database
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT repo_url FROM repositories WHERE project_id = %s",
+                (project_id,)
+            )
+            result = cur.fetchone()
+            cur.close()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Initialize job manager
+        db_url = os.getenv("APP_DATABASE_URL")
+        job_manager = SyncJobManager(db_url)
+
+        # Check if there's already an active sync job for this project
+        existing_job = job_manager.get_job_status(project_id)
+
+        if existing_job:
+            # Job already exists and is active (queued or in_progress)
+            return {
+                "status": "already_syncing",
+                "job_id": existing_job["id"],
+                "message": "Sync already in progress for this project",
+                "imported_count": existing_job.get("imported_count", 0),
+                "total_count": existing_job.get("total_count", 0)
+            }
+
+        # Get GitHub service with current token
+        github_service = get_github_service()
+
+        # Fetch first batch synchronously (fast - 50 open issues + 50 open PRs)
+        issues_result = github_service.import_issues_by_state(
+            project_id, state='open', limit=50, offset=0
+        )
+
+        prs_result = github_service.import_prs_by_state(
+            project_id, state='open', limit=50, offset=0
+        )
+
+        # Create background job record (only if no existing job)
+        job_id = job_manager.create_sync_job(project_id, job_type='full', priority='open')
+
+        # Trigger background fetch for remaining data
+        background_tasks.add_task(
+            background_import_remaining,
+            project_id=project_id,
+            job_id=job_id,
+            github_service=github_service,
+            job_manager=job_manager
+        )
+
+        # Update last_synced_at timestamp
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+                (project_id,)
+            )
+            conn.commit()
+            cur.close()
+
+        return {
+            "status": "initial_complete",
+            "job_id": job_id,
+            "issues": {
+                "imported": issues_result.get("imported", 0),
+                "updated": issues_result.get("updated", 0)
+            },
+            "prs": {
+                "imported": prs_result.get("imported", 0),
+                "updated": prs_result.get("updated", 0)
+            },
+            "background_job_started": True
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import initial batch: {str(e)}"
+        )
+
+
+@router.get("/sync-status/{project_id}")
+async def get_sync_status(project_id: str):
+    """
+    Get sync job status for a project.
+
+    Automatically cleans up stuck jobs (in progress for > 1 hour) before checking status.
+
+    Args:
+        project_id: Project identifier
+
+    Returns:
+        Job status information
+    """
+    try:
+        db_url = os.getenv("APP_DATABASE_URL")
+        job_manager = SyncJobManager(db_url)
+
+        # Clean up any stuck jobs before checking status
+        job_manager.cleanup_stuck_jobs(timeout_hours=1)
+
+        status = job_manager.get_job_status(project_id)
+
+        if not status:
+            return {
+                "status": "no_jobs",
+                "message": "No sync jobs found for this project"
+            }
+
+        return status
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get sync status: {str(e)}"
         )

@@ -38,6 +38,8 @@ export default function Dashboard() {
   const [isDark, setIsDark] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncAbortController, setSyncAbortController] = useState<AbortController | null>(null)
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{imported: number, total: number} | null>(null)
 
   // Ref for immediate race condition checking
   const syncingRef = useRef(false)
@@ -87,6 +89,55 @@ export default function Dashboard() {
 
     return () => clearInterval(interval)
   }, [selectedRepo?.status, selectedRepo?.project_id])
+
+  // Check sync status when project changes (initial check)
+  useEffect(() => {
+    if (!selectedProjectId) return
+    checkSyncStatus()
+  }, [selectedProjectId])
+
+  // Poll for background sync status when actively syncing
+  useEffect(() => {
+    if (!isBackgroundSyncing) return
+
+    const interval = setInterval(checkSyncStatus, 3000)
+    return () => clearInterval(interval)
+  }, [isBackgroundSyncing])
+
+  async function checkSyncStatus() {
+    if (!selectedProjectId) return
+
+    try {
+      const res = await fetch(API_ENDPOINTS.syncStatus(selectedProjectId))
+      const data = await res.json()
+
+      if (data.status === 'no_jobs') {
+        // No background jobs
+        setIsBackgroundSyncing(false)
+        setSyncProgress(null)
+      } else if (data.status === 'in_progress') {
+        // Background job running
+        setIsBackgroundSyncing(true)
+        setSyncProgress({
+          imported: data.imported_count || 0,
+          total: data.total_count || 0
+        })
+      } else if (data.status === 'completed') {
+        // Job just completed
+        setIsBackgroundSyncing(false)
+        setSyncProgress(null)
+        // Reload repositories to show updated counts
+        await loadRepositories()
+      } else if (data.status === 'failed') {
+        // Job failed
+        setIsBackgroundSyncing(false)
+        setSyncProgress(null)
+        console.error('Background sync failed:', data.error_message)
+      }
+    } catch (e) {
+      console.error('Failed to check sync status:', e)
+    }
+  }
 
   async function checkSettings() {
     try {
@@ -389,25 +440,40 @@ export default function Dashboard() {
                   <RefreshCw className={`w-4 h-4 ${selectedRepo.status === 'indexing' ? 'animate-spin' : ''}`} />
                   {selectedRepo.status === 'indexing' ? 'Indexing...' : 'Re-index Code'}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSync}
-                  disabled={selectedRepo.status !== 'indexed'}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : syncing ? 'Click to stop sync' : 'Sync issues and PRs from GitHub'}
-                >
-                  {syncing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Stop Sync
-                    </>
-                  ) : (
-                    <>
-                      <Github className="w-4 h-4" />
-                      Sync Issues/PRs
-                    </>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSync}
+                    disabled={selectedRepo.status !== 'indexed'}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : syncing ? 'Click to stop sync' : 'Sync issues and PRs from GitHub'}
+                  >
+                    {syncing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        Stop Sync
+                      </>
+                    ) : (
+                      <>
+                        <Github className="w-4 h-4" />
+                        Sync Issues/PRs
+                      </>
+                    )}
+                  </button>
+
+                  {/* Background Sync Indicator */}
+                  {isBackgroundSyncing && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 dark:border-blue-400 border-t-transparent"></div>
+                      <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                        {syncProgress && syncProgress.total > 0
+                          ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
+                          : 'Syncing...'
+                        }
+                      </span>
+                    </div>
                   )}
-                </button>
+                </div>
               </div>
             </div>
           </div>
