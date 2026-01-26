@@ -9,7 +9,7 @@ import TriageDashboard from '@/components/TriageDashboard'
 import TriageModeModal from '@/components/TriageModeModal'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
-import { Github, Settings, Sun, Moon, RefreshCw } from 'lucide-react'
+import { Github, Settings, Sun, Moon, RefreshCw, AlertTriangle } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Repository {
@@ -40,6 +40,10 @@ export default function Dashboard() {
   const [syncAbortController, setSyncAbortController] = useState<AbortController | null>(null)
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<{imported: number, total: number} | null>(null)
+  const [rateLimitInfo, setRateLimitInfo] = useState<{
+    resetTime: string | null,
+    message: string
+  } | null>(null)
 
   // Ref for immediate race condition checking
   const syncingRef = useRef(false)
@@ -96,13 +100,25 @@ export default function Dashboard() {
     checkSyncStatus()
   }, [selectedProjectId])
 
-  // Poll for background sync status when actively syncing
+  // Poll for background sync status when actively syncing (but not rate limited)
   useEffect(() => {
-    if (!isBackgroundSyncing) return
+    if (!isBackgroundSyncing || rateLimitInfo) return
 
     const interval = setInterval(checkSyncStatus, 3000)
     return () => clearInterval(interval)
-  }, [isBackgroundSyncing])
+  }, [isBackgroundSyncing, rateLimitInfo])
+
+  // Update countdown timer every second when rate limited
+  useEffect(() => {
+    if (!rateLimitInfo || !rateLimitInfo.resetTime) return
+
+    const interval = setInterval(() => {
+      // Force re-render to update the countdown
+      setRateLimitInfo(prev => prev ? { ...prev } : null)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [rateLimitInfo])
 
   async function checkSyncStatus() {
     if (!selectedProjectId) return
@@ -115,23 +131,41 @@ export default function Dashboard() {
         // No background jobs
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
+        setRateLimitInfo(null)
       } else if (data.status === 'in_progress') {
-        // Background job running
-        setIsBackgroundSyncing(true)
-        setSyncProgress({
-          imported: data.imported_count || 0,
-          total: data.total_count || 0
-        })
+        // Check if rate limited
+        if (data.rate_limited) {
+          // Rate limited - stop polling and show banner
+          setIsBackgroundSyncing(false)
+          setRateLimitInfo({
+            resetTime: data.rate_limit_reset_time || null,
+            message: data.message || 'GitHub rate limit exceeded. Add a GitHub token in Settings for higher limits.'
+          })
+          // Keep sync progress to show what was imported
+          setSyncProgress({
+            imported: data.imported_count || 0,
+            total: data.total_count || 0
+          })
+        } else {
+          // Background job running normally
+          setIsBackgroundSyncing(true)
+          setSyncProgress({
+            imported: data.imported_count || 0,
+            total: data.total_count || 0
+          })
+        }
       } else if (data.status === 'completed') {
         // Job just completed
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
+        setRateLimitInfo(null)
         // Reload repositories to show updated counts
         await loadRepositories()
       } else if (data.status === 'failed') {
         // Job failed
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
+        setRateLimitInfo(null)
         console.error('Background sync failed:', data.error_message)
       }
     } catch (e) {
@@ -147,6 +181,29 @@ export default function Dashboard() {
       setHasGithubToken(data.github_token_set)
     } catch (e) {
       console.error('Failed to check settings:', e)
+    }
+  }
+
+  function formatTimeRemaining(resetTimeStr: string | null): string {
+    if (!resetTimeStr) return 'soon'
+
+    try {
+      const resetTime = new Date(resetTimeStr).getTime()
+      const now = Date.now()
+      const diffMs = resetTime - now
+
+      if (diffMs <= 0) return 'now'
+
+      const minutes = Math.floor(diffMs / 60000)
+      const seconds = Math.floor((diffMs % 60000) / 1000)
+
+      if (minutes > 0) {
+        return `${minutes}m ${seconds}s`
+      } else {
+        return `${seconds}s`
+      }
+    } catch (e) {
+      return 'soon'
     }
   }
 
@@ -178,11 +235,15 @@ export default function Dashboard() {
     }
   }
 
-  function handleIndexComplete(projectId: string) {
-    // Refresh repositories list
-    loadRepositories()
+  async function handleIndexComplete(projectId: string) {
+    console.log('📍 [DEBUG] Index complete callback received:', projectId)
+    // Refresh repositories list and wait for it to complete
+    console.log('🔄 [DEBUG] Loading repositories...')
+    await loadRepositories()
+    console.log('✅ [DEBUG] Repositories loaded, selecting project')
     // Select the newly indexed project
     setSelectedProjectId(projectId)
+    console.log('✅ [DEBUG] Project selected:', projectId)
   }
 
   async function handleReindex() {
@@ -471,6 +532,29 @@ export default function Dashboard() {
                           : 'Syncing...'
                         }
                       </span>
+                    </div>
+                  )}
+
+                  {/* Rate Limit Banner */}
+                  {rateLimitInfo && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
+                          Rate limit exceeded
+                        </p>
+                        {rateLimitInfo.resetTime && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
+                            Resets in: {formatTimeRemaining(rateLimitInfo.resetTime)}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setShowSettingsModal(true)}
+                        className="px-2 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
+                      >
+                        Add Token
+                      </button>
                     </div>
                   )}
                 </div>

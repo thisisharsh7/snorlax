@@ -134,21 +134,29 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
     try {
       updateStage('import', 'in_progress')
 
+      console.log('🚀 [DEBUG] Starting import for project:', projectId)
+
       // Use new fast initial import endpoint
       // This imports first 50 open issues + 50 open PRs, then starts background job
       const res = await fetch(API_ENDPOINTS.importInitial(projectId), {
         method: 'POST'
       })
 
+      console.log('📥 [DEBUG] Response status:', res.status, res.ok)
+
       if (!res.ok) {
+        const errorText = await res.text()
+        console.error('❌ [DEBUG] Response not OK:', errorText)
         throw new Error('Failed to start initial import')
       }
 
       const data = await res.json()
+      console.log('📦 [DEBUG] Full response data:', JSON.stringify(data, null, 2))
+      console.log('📦 [DEBUG] data.status =', data.status)
 
       // Handle both new job and already-syncing cases
       if (data.status === 'already_syncing') {
-        console.log('Sync already in progress:', data)
+        console.log('✅ [DEBUG] Already syncing path')
         console.log(`Job ${data.job_id} is already running`)
         // Still mark as complete since sync is happening
         updateStage('import', 'completed')
@@ -156,29 +164,81 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
         setIndexing(false)
         setComplete(true)
       } else if (data.status === 'initial_complete') {
-        console.log('Initial import complete:', data)
-        console.log(`Imported ${data.issues.imported} issues and ${data.prs.imported} PRs`)
-        console.log('Background job started, will continue fetching remaining data')
-        // Initial batch imported successfully, background job is running
+        console.log('✅ [DEBUG] Initial complete path')
+
+        // SAFE property access - don't crash if undefined
+        const issuesImported = data.issues?.imported ?? 0
+        const issuesUpdated = data.issues?.updated ?? 0
+        const prsImported = data.prs?.imported ?? 0
+        const prsUpdated = data.prs?.updated ?? 0
+
+        console.log(`✅ [DEBUG] Imported ${issuesImported} issues (${issuesUpdated} updated), ${prsImported} PRs (${prsUpdated} updated)`)
+        console.log('✅ [DEBUG] Background job started, will continue fetching remaining data')
+
+        // Update stages
+        console.log('🔄 [DEBUG] Calling updateStage...')
+        updateStage('import', 'completed')
+        updateStage('ready', 'completed')
+
+        // Update modal state
+        console.log('🔄 [DEBUG] Calling setIndexing(false)...')
+        setIndexing(false)
+
+        console.log('🔄 [DEBUG] Calling setComplete(true)...')
+        setComplete(true)
+
+        console.log('✅ [DEBUG] All state updates called - View Dashboard button should appear now')
+      } else if (data.status === 'rate_limited') {
+        console.log('⚠️  [DEBUG] Rate limited path')
+
+        // Get any data that was imported before hitting rate limit
+        const issuesImported = data.imported?.issues ?? 0
+        const prsImported = data.imported?.prs ?? 0
+        const totalImported = issuesImported + prsImported
+
+        console.log(`⚠️  [DEBUG] Imported ${issuesImported} issues, ${prsImported} PRs before rate limit`)
+        console.log('💡 [DEBUG] User needs to add GitHub token for higher limits')
+
+        // Mark as completed (data was saved, user can view what was imported)
         updateStage('import', 'completed')
         updateStage('ready', 'completed')
         setIndexing(false)
         setComplete(true)
+
+        // Show helpful error message with clear guidance
+        setError(
+          `⚠️ GitHub Rate Limit Reached\n\n` +
+          `✅ Successfully imported ${totalImported} items (${issuesImported} issues, ${prsImported} PRs)\n` +
+          `📦 All imported data has been saved and is available to view\n\n` +
+          `💡 To import more items:\n` +
+          `   1. Click the gear icon (⚙️) in the top right\n` +
+          `   2. Add your GitHub Personal Access Token\n` +
+          `   3. This increases your rate limit from 60 to 5,000 calls/hour\n\n` +
+          `You can view the imported data by clicking "View Dashboard" below.`
+        )
       } else {
-        throw new Error('Unexpected response status')
+        console.error('❌ [DEBUG] Unexpected status:', data.status)
+        console.error('❌ [DEBUG] Full data object:', data)
+        throw new Error(`Unexpected response status: ${data.status}`)
       }
     } catch (err: any) {
-      console.error('Failed to import issues/PRs:', err)
+      console.error('❌ [DEBUG] Import failed:', err)
+      console.error('❌ [DEBUG] Error name:', err.name)
+      console.error('❌ [DEBUG] Error message:', err.message)
+      console.error('❌ [DEBUG] Error stack:', err.stack)
       updateStage('import', 'error')
-      setError(err.message)
+      setError(err.message || 'Failed to import issues and PRs')
       setIndexing(false)
     }
   }
 
   function handleViewDashboard() {
     if (projectId) {
+      console.log('🚀 [DEBUG] Navigating to dashboard with projectId:', projectId)
       onIndexComplete(projectId)
       onClose()
+    } else {
+      console.error('❌ [DEBUG] No projectId available!')
     }
   }
 
@@ -232,8 +292,8 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
 
             {error && (
               <div className="mt-3 p-2.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-md border border-red-200 dark:border-red-800">
-                <p className="font-medium text-xs">Error</p>
-                <p className="text-xs mt-0.5">{error}</p>
+                <p className="font-medium text-xs">Notice</p>
+                <p className="text-xs mt-0.5 whitespace-pre-line">{error}</p>
               </div>
             )}
 
@@ -261,6 +321,13 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
         {/* Progress Stages */}
         {(indexing || complete) && (
           <div className="space-y-3">
+            {/* Show warning message if there was a rate limit error */}
+            {complete && error && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-lg border border-amber-200 dark:border-amber-800 mb-3">
+                <p className="text-xs whitespace-pre-line leading-relaxed">{error}</p>
+              </div>
+            )}
+
             {stages.map((stage) => (
               <div
                 key={stage.id}

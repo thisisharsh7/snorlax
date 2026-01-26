@@ -59,7 +59,9 @@ class SyncJobManager:
         job_id: int,
         status: str,
         error_message: Optional[str] = None,
-        completed_at: Optional[datetime] = None
+        completed_at: Optional[datetime] = None,
+        rate_limited: Optional[bool] = None,
+        rate_limit_reset_time: Optional[datetime] = None
     ):
         """
         Update sync job status.
@@ -69,21 +71,36 @@ class SyncJobManager:
             status: New status ('queued', 'in_progress', 'completed', 'failed')
             error_message: Optional error message for failed jobs
             completed_at: Optional completion timestamp
+            rate_limited: Optional flag indicating job is waiting for rate limit reset
+            rate_limit_reset_time: Optional timestamp when rate limit will reset
         """
         with self.get_db_connection() as conn:
             with conn.cursor() as cur:
+                # Build dynamic query based on what's provided
+                updates = ["status = %s", "error_message = %s"]
+                params = [status, error_message]
+
                 if completed_at:
-                    cur.execute("""
-                        UPDATE sync_jobs
-                        SET status = %s, error_message = %s, completed_at = %s
-                        WHERE id = %s
-                    """, (status, error_message, completed_at, job_id))
-                else:
-                    cur.execute("""
-                        UPDATE sync_jobs
-                        SET status = %s, error_message = %s
-                        WHERE id = %s
-                    """, (status, error_message, job_id))
+                    updates.append("completed_at = %s")
+                    params.append(completed_at)
+
+                if rate_limited is not None:
+                    updates.append("rate_limited = %s")
+                    params.append(rate_limited)
+
+                if rate_limit_reset_time is not None:
+                    updates.append("rate_limit_reset_time = %s")
+                    params.append(rate_limit_reset_time)
+
+                params.append(job_id)
+
+                query = f"""
+                    UPDATE sync_jobs
+                    SET {', '.join(updates)}
+                    WHERE id = %s
+                """
+
+                cur.execute(query, tuple(params))
                 conn.commit()
 
     def update_job_progress(
@@ -139,7 +156,8 @@ class SyncJobManager:
                 cur.execute("""
                     SELECT id, job_type, status, priority, total_count,
                            imported_count, current_batch, started_at,
-                           completed_at, error_message
+                           completed_at, error_message, rate_limited,
+                           rate_limit_reset_time
                     FROM sync_jobs
                     WHERE project_id = %s
                       AND status NOT IN ('completed', 'failed')
@@ -162,7 +180,9 @@ class SyncJobManager:
                     "current_batch": row[6],
                     "started_at": row[7].isoformat() if row[7] else None,
                     "completed_at": row[8].isoformat() if row[8] else None,
-                    "error_message": row[9]
+                    "error_message": row[9],
+                    "rate_limited": row[10] if row[10] is not None else False,
+                    "rate_limit_reset_time": row[11].isoformat() if row[11] else None
                 }
 
     def cleanup_stuck_jobs(self, timeout_hours: int = 1) -> int:
@@ -258,34 +278,76 @@ async def fetch_with_batches(
                 offset=skip_first + (batch_num * batch_size)
             )
 
+            # Check if rate limited
+            if result.get("status") == "rate_limited":
+                imported_this_batch = result.get("imported", 0)
+                updated_this_batch = result.get("updated", 0)
+                total_imported += imported_this_batch + updated_this_batch
+
+                # Update final progress
+                if imported_this_batch + updated_this_batch > 0:
+                    job_manager.update_job_progress(
+                        job_id,
+                        imported_count=imported_this_batch + updated_this_batch,
+                        batch_num=batch_num
+                    )
+
+                reset_time = result.get("reset_time")
+                logger.warning(
+                    f"⚠️  Rate limit hit during batch {batch_num}. "
+                    f"Imported {total_imported} items before stopping. "
+                    f"Data has been saved and is available to view. "
+                    f"Rate limit resets at: {reset_time}"
+                )
+
+                # Return structured data with reset time for rate limit handling
+                return {
+                    "status": "rate_limited",
+                    "total_imported": total_imported,
+                    "message": result.get("message"),
+                    "reset_time": reset_time
+                }
+
+            # Check for other errors
+            if result.get("status") == "error":
+                logger.error(f"Error in batch {batch_num}: {result.get('message')}")
+                # For non-rate-limit errors, try to continue
+                batch_num += 1
+                await asyncio.sleep(5)
+                if batch_num > 100:
+                    logger.error("Too many batches processed, stopping")
+                    break
+                continue
+
             imported_this_batch = result.get("imported", 0)
-            total_imported += imported_this_batch
+            updated_this_batch = result.get("updated", 0)
+            total_imported += imported_this_batch + updated_this_batch
 
             # Update progress
             job_manager.update_job_progress(
                 job_id,
-                imported_count=imported_this_batch,
+                imported_count=imported_this_batch + updated_this_batch,
                 batch_num=batch_num,
                 total_count=result.get("total_estimate")
             )
 
             logger.info(
-                f"Batch {batch_num} complete: {imported_this_batch} items "
+                f"Batch {batch_num} complete: {imported_this_batch + updated_this_batch} items "
                 f"(total: {total_imported})"
             )
 
             batch_num += 1
 
             # Stop if we fetched fewer items than batch_size (no more data)
-            if imported_this_batch < batch_size:
-                logger.info(f"Reached end of data (fetched {imported_this_batch} < {batch_size})")
+            if imported_this_batch + updated_this_batch < batch_size:
+                logger.info(f"Reached end of data (fetched {imported_this_batch + updated_this_batch} < {batch_size})")
                 break
 
             # Rate limit protection: 2 second delay between batches
             await asyncio.sleep(2)
 
         except Exception as e:
-            logger.error(f"Error in batch {batch_num}: {str(e)}")
+            logger.error(f"Unexpected exception in batch {batch_num}: {str(e)}")
             # Continue to next batch on error
             batch_num += 1
             await asyncio.sleep(5)  # Wait a bit longer on error
@@ -327,7 +389,7 @@ async def background_import_remaining(
     try:
         # Priority 1: Remaining OPEN issues (skip first 50 already fetched)
         logger.info("Phase 1: Fetching remaining OPEN issues...")
-        await fetch_with_batches(
+        result = await fetch_with_batches(
             github_service=github_service,
             job_manager=job_manager,
             project_id=project_id,
@@ -337,10 +399,34 @@ async def background_import_remaining(
             batch_size=100,
             skip_first=50
         )
+
+        # Check if rate limited
+        if isinstance(result, dict) and result.get("status") == "rate_limited":
+            reset_time_str = result.get("reset_time")
+            reset_time = None
+            if reset_time_str:
+                # Convert timestamp to datetime
+                from datetime import datetime
+                reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
+
+            logger.info(
+                f"⚠️  Rate limited in Phase 1. Marking job as rate_limited. "
+                f"Partial data ({result.get('total_imported', 0)} items) has been saved."
+            )
+
+            # Mark job with rate limit info - don't mark as failed, keep status
+            job_manager.update_job_status(
+                job_id,
+                'in_progress',
+                error_message=f"Rate limited. {result.get('total_imported', 0)} items imported. Add GitHub token for higher limits.",
+                rate_limited=True,
+                rate_limit_reset_time=reset_time
+            )
+            return
 
         # Priority 2: Remaining OPEN PRs (skip first 50 already fetched)
         logger.info("Phase 2: Fetching remaining OPEN PRs...")
-        await fetch_with_batches(
+        result = await fetch_with_batches(
             github_service=github_service,
             job_manager=job_manager,
             project_id=project_id,
@@ -351,9 +437,31 @@ async def background_import_remaining(
             skip_first=50
         )
 
+        # Check if rate limited
+        if isinstance(result, dict) and result.get("status") == "rate_limited":
+            reset_time_str = result.get("reset_time")
+            reset_time = None
+            if reset_time_str:
+                from datetime import datetime
+                reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
+
+            logger.info(
+                f"⚠️  Rate limited in Phase 2. Marking job as rate_limited. "
+                f"Partial data ({result.get('total_imported', 0)} items) has been saved."
+            )
+
+            job_manager.update_job_status(
+                job_id,
+                'in_progress',
+                error_message=f"Rate limited. {result.get('total_imported', 0)} items imported. Add GitHub token for higher limits.",
+                rate_limited=True,
+                rate_limit_reset_time=reset_time
+            )
+            return
+
         # Priority 3: CLOSED issues
         logger.info("Phase 3: Fetching CLOSED issues...")
-        await fetch_with_batches(
+        result = await fetch_with_batches(
             github_service=github_service,
             job_manager=job_manager,
             project_id=project_id,
@@ -364,9 +472,31 @@ async def background_import_remaining(
             skip_first=0
         )
 
+        # Check if rate limited
+        if isinstance(result, dict) and result.get("status") == "rate_limited":
+            reset_time_str = result.get("reset_time")
+            reset_time = None
+            if reset_time_str:
+                from datetime import datetime
+                reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
+
+            logger.info(
+                f"⚠️  Rate limited in Phase 3. Marking job as rate_limited. "
+                f"Partial data ({result.get('total_imported', 0)} items) has been saved."
+            )
+
+            job_manager.update_job_status(
+                job_id,
+                'in_progress',
+                error_message=f"Rate limited. {result.get('total_imported', 0)} items imported. Add GitHub token for higher limits.",
+                rate_limited=True,
+                rate_limit_reset_time=reset_time
+            )
+            return
+
         # Priority 4: CLOSED PRs
         logger.info("Phase 4: Fetching CLOSED PRs...")
-        await fetch_with_batches(
+        result = await fetch_with_batches(
             github_service=github_service,
             job_manager=job_manager,
             project_id=project_id,
@@ -377,11 +507,34 @@ async def background_import_remaining(
             skip_first=0
         )
 
-        # Mark job as completed
+        # Check if rate limited
+        if isinstance(result, dict) and result.get("status") == "rate_limited":
+            reset_time_str = result.get("reset_time")
+            reset_time = None
+            if reset_time_str:
+                from datetime import datetime
+                reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
+
+            logger.info(
+                f"⚠️  Rate limited in Phase 4. Marking job as rate_limited. "
+                f"Partial data ({result.get('total_imported', 0)} items) has been saved."
+            )
+
+            job_manager.update_job_status(
+                job_id,
+                'in_progress',
+                error_message=f"Rate limited. {result.get('total_imported', 0)} items imported. Add GitHub token for higher limits.",
+                rate_limited=True,
+                rate_limit_reset_time=reset_time
+            )
+            return
+
+        # Mark job as completed (all phases succeeded without rate limit)
         job_manager.update_job_status(
             job_id,
             'completed',
-            completed_at=datetime.now(timezone.utc)
+            completed_at=datetime.now(timezone.utc),
+            rate_limited=False
         )
 
         logger.info(f"Background import completed successfully for project {project_id}")

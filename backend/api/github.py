@@ -462,7 +462,7 @@ async def get_sync_status(project_id: str):
         project_id: Project identifier
 
     Returns:
-        Job status information
+        Job status information including rate limit details
     """
     try:
         db_url = os.getenv("APP_DATABASE_URL")
@@ -478,6 +478,24 @@ async def get_sync_status(project_id: str):
                 "status": "no_jobs",
                 "message": "No sync jobs found for this project"
             }
+
+        # Add rate limit messaging if applicable
+        if status.get("rate_limited"):
+            reset_time = status.get("rate_limit_reset_time")
+            imported_count = status.get("imported_count", 0)
+
+            # Format user-friendly message
+            if reset_time:
+                status["message"] = (
+                    f"GitHub rate limit exceeded. Already imported {imported_count} items. "
+                    f"Rate limit resets at {reset_time}. "
+                    f"Add a GitHub token in Settings for 5,000 calls/hour (vs 60/hour without token)."
+                )
+            else:
+                status["message"] = (
+                    f"GitHub rate limit exceeded. Already imported {imported_count} items. "
+                    f"Add a GitHub token in Settings for 5,000 calls/hour (vs 60/hour without token)."
+                )
 
         return status
 
