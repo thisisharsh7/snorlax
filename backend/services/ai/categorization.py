@@ -85,6 +85,22 @@ class IssueCategorizationService:
                     "state": result[2]
                 }
 
+    def _truncate_text(self, text: str, max_chars: int = 2000) -> str:
+        """
+        Truncate text to max characters to reduce token usage.
+
+        Args:
+            text: Text to truncate
+            max_chars: Maximum character count (roughly ~500 tokens)
+
+        Returns:
+            Truncated text with indicator if truncated
+        """
+        if not text or len(text) <= max_chars:
+            return text or ""
+
+        return text[:max_chars] + f"\n\n[... truncated {len(text) - max_chars} characters for cost optimization]"
+
     def _format_similar_issues(self, issues: List[Dict]) -> str:
         """Format similar issues for Claude prompt."""
         if not issues:
@@ -143,10 +159,13 @@ class IssueCategorizationService:
         if not self.claude_client:
             return {"error": "Claude API key not configured"}
 
+        # Truncate issue body to reduce token usage (max 2000 chars = ~500 tokens)
+        truncated_body = self._truncate_text(issue.get('body', ''), max_chars=2000)
+
         prompt = f"""You are analyzing GitHub issue #{issue['issue_number']}: "{issue['title']}"
 
 Issue Description:
-{issue['body'] or 'No description provided'}
+{truncated_body or 'No description provided'}
 
 I've run semantic similarity searches across the codebase and found:
 
@@ -219,6 +238,15 @@ Return ONLY valid JSON, no markdown code blocks."""
                 messages=[{"role": "user", "content": prompt}]
             )
 
+            # Extract token usage for cost tracking
+            input_tokens = message.usage.input_tokens
+            output_tokens = message.usage.output_tokens
+
+            # Calculate cost (Claude Sonnet 4.5 pricing: $3 input / $15 output per 1M tokens)
+            input_cost = (input_tokens / 1_000_000) * 3
+            output_cost = (output_tokens / 1_000_000) * 15
+            total_cost = input_cost + output_cost
+
             response_text = message.content[0].text
             # Remove markdown code blocks if present
             if response_text.startswith("```json"):
@@ -226,7 +254,19 @@ Return ONLY valid JSON, no markdown code blocks."""
             elif response_text.startswith("```"):
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
-            return json.loads(response_text)
+            result = json.loads(response_text)
+
+            # Add cost tracking to result
+            result["api_cost"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "input_cost_usd": round(input_cost, 6),
+                "output_cost_usd": round(output_cost, 6),
+                "total_cost_usd": round(total_cost, 6)
+            }
+
+            return result
 
         except Exception as e:
             print(f"Error in Claude analysis: {e}")
@@ -346,51 +386,122 @@ Return ONLY valid JSON, no markdown code blocks."""
 
                 conn.commit()
 
-    def categorize_all_issues(self, project_id: str) -> Dict[str, Any]:
+    def categorize_all_issues(self, project_id: str, force_recategorize: bool = False) -> Dict[str, Any]:
         """
-        Categorize all issues in a project.
+        Categorize all issues in a project with intelligent caching.
 
         Args:
             project_id: Project identifier
+            force_recategorize: If True, re-categorize already categorized issues (default: False)
 
         Returns:
-            Statistics about categorization
+            Statistics about categorization including skipped count
         """
         # First, generate embeddings for all issues/PRs
         embed_stats = self.embedding_service.generate_all_embeddings(project_id)
 
-        # Get all issues
+        # Get issues (skip already categorized unless force_recategorize=True)
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT issue_number
-                    FROM github_issues
-                    WHERE project_id = %s
-                    AND state = 'open'
-                    ORDER BY issue_number
-                """, (project_id,))
+                if force_recategorize:
+                    # Get ALL open issues
+                    cur.execute("""
+                        SELECT issue_number
+                        FROM github_issues
+                        WHERE project_id = %s
+                        AND state = 'open'
+                        ORDER BY issue_number
+                    """, (project_id,))
+                    issue_numbers = [row[0] for row in cur.fetchall()]
+                    skipped = 0
+                else:
+                    # Get only UNCATEGORIZED open issues (OPTIMIZATION!)
+                    cur.execute("""
+                        SELECT gi.issue_number
+                        FROM github_issues gi
+                        LEFT JOIN issue_categories ic
+                            ON gi.project_id = ic.project_id
+                            AND gi.issue_number = ic.issue_number
+                        WHERE gi.project_id = %s
+                        AND gi.state = 'open'
+                        AND ic.issue_number IS NULL
+                        ORDER BY gi.issue_number
+                    """, (project_id,))
+                    issue_numbers = [row[0] for row in cur.fetchall()]
 
-                issue_numbers = [row[0] for row in cur.fetchall()]
+                    # Count already categorized issues
+                    cur.execute("""
+                        SELECT COUNT(DISTINCT ic.issue_number)
+                        FROM issue_categories ic
+                        JOIN github_issues gi
+                            ON ic.project_id = gi.project_id
+                            AND ic.issue_number = gi.issue_number
+                        WHERE ic.project_id = %s
+                        AND gi.state = 'open'
+                    """, (project_id,))
+                    skipped = cur.fetchone()[0]
 
-        # Categorize each issue
+        total_open = len(issue_numbers) + (0 if force_recategorize else skipped)
+        print(f"📊 Categorization Plan:")
+        print(f"   Total open issues: {total_open}")
+        print(f"   Already categorized: {skipped} (skipping)")
+        print(f"   To categorize: {len(issue_numbers)}")
+        print(f"   Estimated cost: ${len(issue_numbers) * 0.015:.2f}")
+
+        if len(issue_numbers) == 0:
+            print("✅ All open issues already categorized!")
+            return {
+                **embed_stats,
+                "issues_categorized": 0,
+                "issues_failed": 0,
+                "issues_skipped": skipped,
+                "message": "All issues already categorized"
+            }
+
+        # Categorize each issue and track costs
         categorized = 0
         failed = 0
+        total_cost = 0.0
+        total_input_tokens = 0
+        total_output_tokens = 0
 
-        for issue_number in issue_numbers:
+        for idx, issue_number in enumerate(issue_numbers, 1):
             try:
+                # Progress logging every 10 issues
+                if idx % 10 == 0 or idx == len(issue_numbers):
+                    print(f"   Progress: {idx}/{len(issue_numbers)} ({idx/len(issue_numbers)*100:.1f}%) • Cost so far: ${total_cost:.4f}")
+
                 result = self.categorize_issue(project_id, issue_number)
                 if "error" not in result:
                     categorized += 1
+
+                    # Track API costs
+                    if "api_cost" in result:
+                        cost_info = result["api_cost"]
+                        total_cost += cost_info.get("total_cost_usd", 0)
+                        total_input_tokens += cost_info.get("input_tokens", 0)
+                        total_output_tokens += cost_info.get("output_tokens", 0)
                 else:
                     failed += 1
             except Exception as e:
                 print(f"Error categorizing issue #{issue_number}: {e}")
                 failed += 1
 
+        print(f"✅ Categorization complete! Total cost: ${total_cost:.4f}")
+
         return {
             **embed_stats,
             "issues_categorized": categorized,
-            "issues_failed": failed
+            "issues_failed": failed,
+            "issues_skipped": skipped if not force_recategorize else 0,
+            "force_recategorize": force_recategorize,
+            "api_cost": {
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_tokens": total_input_tokens + total_output_tokens,
+                "total_cost_usd": round(total_cost, 6),
+                "average_cost_per_issue": round(total_cost / categorized, 6) if categorized > 0 else 0
+            }
         }
 
     def get_categorized_issues(self, project_id: str, category: Optional[str] = None) -> List[Dict]:
@@ -694,10 +805,13 @@ Return only the comment text, no markdown code blocks."""
                 result = cur.fetchone()
                 labels = result[0] if result and result[0] else []
 
+        # Truncate issue body to reduce token usage (max 2000 chars = ~500 tokens)
+        truncated_body = self._truncate_text(issue.get('body', ''), max_chars=2000)
+
         prompt = f"""You are triaging GitHub issue #{issue['issue_number']}: "{issue['title']}"
 
 Issue Description:
-{issue['body'] or 'No description provided'}
+{truncated_body or 'No description provided'}
 
 Labels: {', '.join(labels) if labels else 'None'}
 
@@ -805,6 +919,15 @@ Return JSON:
                 messages=[{"role": "user", "content": prompt}]
             )
 
+            # Extract token usage for cost tracking
+            input_tokens = message.usage.input_tokens
+            output_tokens = message.usage.output_tokens
+
+            # Calculate cost (Claude Sonnet 4.5 pricing: $3 input / $15 output per 1M tokens)
+            input_cost = (input_tokens / 1_000_000) * 3
+            output_cost = (output_tokens / 1_000_000) * 15
+            total_cost = input_cost + output_cost
+
             response_text = message.content[0].text
             # Remove markdown code blocks if present
             if response_text.startswith("```json"):
@@ -812,7 +935,19 @@ Return JSON:
             elif response_text.startswith("```"):
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
-            return json.loads(response_text)
+            result = json.loads(response_text)
+
+            # Add cost tracking to result
+            result["api_cost"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "input_cost_usd": round(input_cost, 6),
+                "output_cost_usd": round(output_cost, 6),
+                "total_cost_usd": round(total_cost, 6)
+            }
+
+            return result
 
         except Exception as e:
             print(f"Error in triage analysis: {e}")
@@ -919,7 +1054,8 @@ Return JSON:
             "suggested_responses": suggested_responses,
             "priority_score": analysis.get('priority_score', 0),
             "needs_response": analysis.get('needs_response', False),
-            "tags": analysis.get('tags', [])
+            "tags": analysis.get('tags', []),
+            "api_cost": analysis.get('api_cost', {})  # Include cost tracking
         }
 
     def _store_triage_results(

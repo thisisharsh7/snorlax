@@ -19,6 +19,9 @@ from services.github.api import GitHubService
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of batches per sync phase (10 batches × 100 items = 1000 items max per phase)
+MAX_BATCHES_PER_PHASE = 10
+
 
 class SyncJobManager:
     """Manages sync job lifecycle and database operations."""
@@ -230,7 +233,8 @@ async def fetch_with_batches(
     fetch_func: Callable,
     state: str,
     batch_size: int = 100,
-    skip_first: int = 0
+    skip_first: int = 0,
+    max_batches: int = MAX_BATCHES_PER_PHASE
 ):
     """
     Fetch data in batches with rate limit protection.
@@ -244,13 +248,20 @@ async def fetch_with_batches(
         state: State filter ('open' or 'closed')
         batch_size: Items per batch
         skip_first: Skip first N items (already fetched)
+        max_batches: Maximum number of batches to fetch (default: MAX_BATCHES_PER_PHASE)
     """
     batch_num = 0
     total_imported = 0
+    limit_reached = False
 
-    logger.info(f"Starting batch fetch: state={state}, batch_size={batch_size}, skip_first={skip_first}")
+    logger.info(f"Starting batch fetch: state={state}, batch_size={batch_size}, skip_first={skip_first}, max_batches={max_batches}")
 
     while True:
+        # Check batch limit
+        if batch_num >= max_batches:
+            logger.warning(f"Reached maximum batch limit ({max_batches}) for {state} items")
+            limit_reached = True
+            break
         # Check rate limit before each batch
         rate_check = github_service.check_rate_limit(required_calls=batch_size // 10)
 
@@ -321,6 +332,7 @@ async def fetch_with_batches(
 
             imported_this_batch = result.get("imported", 0)
             updated_this_batch = result.get("updated", 0)
+            fetched_this_batch = result.get("fetched", 0)
             total_imported += imported_this_batch + updated_this_batch
 
             # Update progress
@@ -332,15 +344,20 @@ async def fetch_with_batches(
             )
 
             logger.info(
-                f"Batch {batch_num} complete: {imported_this_batch + updated_this_batch} items "
-                f"(total: {total_imported})"
+                f"Batch {batch_num} complete: {imported_this_batch} new, {updated_this_batch} updated, "
+                f"{fetched_this_batch} fetched (total: {total_imported})"
             )
 
             batch_num += 1
 
-            # Stop if we fetched fewer items than batch_size (no more data)
-            if imported_this_batch + updated_this_batch < batch_size:
-                logger.info(f"Reached end of data (fetched {imported_this_batch + updated_this_batch} < {batch_size})")
+            # Stop if no data changed (everything already synced and up-to-date)
+            if imported_this_batch == 0 and updated_this_batch == 0:
+                logger.info(f"No changes in batch {batch_num - 1} - all data is up-to-date. Stopping sync.")
+                break
+
+            # Stop if GitHub returned fewer items than requested (no more data available)
+            if fetched_this_batch < batch_size:
+                logger.info(f"Reached end of data (fetched {fetched_this_batch} < {batch_size})")
                 break
 
             # Rate limit protection: 2 second delay between batches
@@ -357,7 +374,11 @@ async def fetch_with_batches(
                 logger.error("Too many batches processed, stopping")
                 break
 
-    return total_imported
+    return {
+        "status": "completed",
+        "total_imported": total_imported,
+        "limit_reached": limit_reached
+    }
 
 
 async def background_import_remaining(
@@ -397,7 +418,8 @@ async def background_import_remaining(
             fetch_func=github_service.import_issues_by_state,
             state='open',
             batch_size=100,
-            skip_first=50
+            skip_first=50,
+            max_batches=MAX_BATCHES_PER_PHASE
         )
 
         # Check if rate limited
@@ -434,7 +456,8 @@ async def background_import_remaining(
             fetch_func=github_service.import_prs_by_state,
             state='open',
             batch_size=100,
-            skip_first=50
+            skip_first=50,
+            max_batches=MAX_BATCHES_PER_PHASE
         )
 
         # Check if rate limited
@@ -459,6 +482,23 @@ async def background_import_remaining(
             )
             return
 
+        # Skip phases 3-4 (closed items) - only sync open items by default
+        logger.info("Skipping closed items sync (only syncing open items)")
+
+        # Mark job as completed
+        job_manager.update_job_status(
+            job_id,
+            'completed',
+            completed_at=datetime.now(timezone.utc),
+            rate_limited=False
+        )
+
+        logger.info(f"Background import completed successfully for project {project_id}")
+        return
+
+        # The following phases are disabled by default to improve sync performance
+        # and reduce API usage. To re-enable, remove the early return above.
+        #
         # Priority 3: CLOSED issues
         logger.info("Phase 3: Fetching CLOSED issues...")
         result = await fetch_with_batches(

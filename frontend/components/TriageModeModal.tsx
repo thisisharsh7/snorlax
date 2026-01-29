@@ -29,6 +29,14 @@ interface TriageAnalysis {
   priority_score: number
   needs_response: boolean
   tags: string[]
+  api_cost?: {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    input_cost_usd: number
+    output_cost_usd: number
+    total_cost_usd: number
+  }
 }
 
 interface TriageModeModalProps {
@@ -439,11 +447,16 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
                     {/* Category & Confidence */}
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Analysis Results</h3>
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <CategoryBadge category={analysis.primary_category} />
                         <span className="text-sm text-gray-600 dark:text-gray-400">
                           {Math.round((analysis.confidence || 0) * 100)}% confident
                         </span>
+                        {analysis.api_cost && (
+                          <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-mono">
+                            Cost: ${analysis.api_cost.total_cost_usd.toFixed(4)}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
                     </div>

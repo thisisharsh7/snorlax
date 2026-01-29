@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Github, Trash2, Settings } from 'lucide-react'
+import { Github, Trash2, Settings, Sun, Moon } from 'lucide-react'
 import DeleteRepoModal from './DeleteRepoModal'
 import { API_ENDPOINTS } from '@/lib/config'
 
@@ -18,9 +18,11 @@ interface RepoSidebarProps {
   onSelectRepo: (projectId: string) => void
   onNewRepo: () => void
   onSettingsClick: () => void
+  isDark: boolean
+  onToggleDarkMode: () => void
 }
 
-export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo, onSettingsClick }: RepoSidebarProps) {
+export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo, onSettingsClick, isDark, onToggleDarkMode }: RepoSidebarProps) {
   const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -91,6 +93,18 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
           Repositories
         </h2>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onToggleDarkMode}
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            title="Toggle dark mode"
+          >
+            {isDark ? (
+              <Sun className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+            ) : (
+              <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+            )}
+          </button>
           <button
             type="button"
             onClick={onSettingsClick}

@@ -47,6 +47,8 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   const [generatingComment, setGeneratingComment] = useState<number | null>(null)
   const [generatedComment, setGeneratedComment] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [estimatedCost, setEstimatedCost] = useState<number>(0)
+  const [actualCost, setActualCost] = useState<number>(0)
 
   // Ref for immediate race condition checking
   const categorizingRef = useRef(false)
@@ -106,6 +108,11 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
       if (!res.ok) return
       const data = await res.json()
       setStats(data)
+
+      // Calculate estimated cost for uncategorized issues
+      // Average cost: $0.015 per issue
+      const uncategorized = data.uncategorized_issues || 0
+      setEstimatedCost(uncategorized * 0.015)
     } catch (e: any) {
       console.error('Failed to load stats:', e)
       // Stats are not critical, so don't show error to user
@@ -188,8 +195,21 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   }
 
   function getFilteredIssues(): CategorizedIssue[] {
-    if (activeTab === 'all') return issues
-    return issues.filter(i => i.category === activeTab)
+    console.log('[Filter Debug] activeTab:', activeTab)
+    console.log('[Filter Debug] total issues:', issues.length)
+
+    if (activeTab === 'all') {
+      console.log('[Filter Debug] showing all issues')
+      return issues
+    }
+
+    const filtered = issues.filter(i => {
+      console.log(`[Filter Debug] Issue #${i.issue_number} category:`, i.category, 'matches:', i.category === activeTab)
+      return i.category === activeTab
+    })
+
+    console.log('[Filter Debug] filtered count:', filtered.length)
+    return filtered
   }
 
   function groupByTheme(): ThemeCluster[] {
@@ -217,56 +237,60 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {repoName} - Categorized Issues
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">
-              AI-powered issue categorization with full transparency
-            </p>
-          </div>
-          <button
-            onClick={handleCategorizeAll}
-            disabled={categorizing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
-          >
-            {categorizing && (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <div className="flex justify-between items-center mb-4">
+          {/* Stats */}
+          {stats && (
+            <div className="flex gap-8 items-center">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-gray-900 dark:text-white">{stats.categorized_issues}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Categorized</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.by_category?.duplicate || 0}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Duplicates</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.by_category?.implemented || 0}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Implemented</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.by_category?.fixed_in_pr || 0}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Fixed in PR</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{stats.by_category?.theme_cluster || 0}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Themes</div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleCategorizeAll}
+              disabled={categorizing}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
+            >
+              {categorizing && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              )}
+              {categorizing ? 'Categorizing...' : 'Categorize All Issues'}
+            </button>
+            {!categorizing && estimatedCost > 0 && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Est. cost: ${estimatedCost.toFixed(3)}
+              </span>
             )}
-            {categorizing ? 'Categorizing...' : 'Categorize All Issues'}
-          </button>
+            {categorizing && actualCost > 0 && (
+              <span className="text-xs text-green-600 dark:text-green-400 font-mono">
+                Cost so far: ${actualCost.toFixed(4)}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Stats */}
-        {stats && (
-          <div className="flex gap-4 mb-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.categorized_issues}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Categorized</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.by_category?.duplicate || 0}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Duplicates</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.by_category?.implemented || 0}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Implemented</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.by_category?.fixed_in_pr || 0}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Fixed in PR</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.by_category?.theme_cluster || 0}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Themes</div>
-            </div>
-          </div>
-        )}
-
         {/* Tabs */}
-        <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+        <div className="flex gap-6 border-b border-gray-200 dark:border-gray-700 overflow-x-auto -mb-px">
           {['all', 'duplicate', 'implemented', 'fixed_in_pr', 'theme_cluster'].map(tab => (
             <button
               key={tab}

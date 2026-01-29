@@ -316,7 +316,9 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to analyze issue #{issue_number}: {e}")
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Failed to analyze issue #{issue_number}: {e}\n{error_trace}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to analyze issue: {str(e)}"

@@ -35,9 +35,10 @@ interface IssuesPRsPanelProps {
   onImport: () => void
   onOpenSettings: () => void
   onReindex: () => void
+  isBackgroundSyncing?: boolean
 }
 
-export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex }: IssuesPRsPanelProps) {
+export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing }: IssuesPRsPanelProps) {
   const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues')
   const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('all')
   const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all')
@@ -372,8 +373,18 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           issues.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-gray-500 dark:text-gray-400">
-                <p className="text-lg font-semibold mb-2">No issues found</p>
-                <p className="text-sm">Click "Sync Issues/PRs" to import issues</p>
+                {isBackgroundSyncing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-lg font-semibold mb-2">Syncing issues...</p>
+                    <p className="text-sm">Please wait while we import issues from GitHub</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-semibold mb-2">No issues found</p>
+                    <p className="text-sm">Click "Sync Issues/PRs" to import issues</p>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -417,8 +428,18 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           prs.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-gray-500 dark:text-gray-400">
-                <p className="text-lg font-semibold mb-2">No pull requests found</p>
-                <p className="text-sm">Click "Sync Issues/PRs" to import pull requests</p>
+                {isBackgroundSyncing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-lg font-semibold mb-2">Syncing pull requests...</p>
+                    <p className="text-sm">Please wait while we import pull requests from GitHub</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-semibold mb-2">No pull requests found</p>
+                    <p className="text-sm">Click "Sync Issues/PRs" to import pull requests</p>
+                  </>
+                )}
               </div>
             </div>
           ) : (

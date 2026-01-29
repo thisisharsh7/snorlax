@@ -127,15 +127,19 @@ export default function Dashboard() {
       const res = await fetch(API_ENDPOINTS.syncStatus(selectedProjectId))
       const data = await res.json()
 
+      console.log('[Sync Status] Response:', data)
+
       if (data.status === 'no_jobs') {
         // No background jobs
+        console.log('[Sync Status] No jobs - stopping indicator')
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
         setRateLimitInfo(null)
-      } else if (data.status === 'in_progress') {
+      } else if (data.status === 'in_progress' || data.status === 'queued') {
         // Check if rate limited
         if (data.rate_limited) {
           // Rate limited - stop polling and show banner
+          console.log('[Sync Status] Rate limited - stopping indicator')
           setIsBackgroundSyncing(false)
           setRateLimitInfo({
             resetTime: data.rate_limit_reset_time || null,
@@ -148,6 +152,7 @@ export default function Dashboard() {
           })
         } else {
           // Background job running normally
+          console.log('[Sync Status] In progress - showing indicator')
           setIsBackgroundSyncing(true)
           setSyncProgress({
             imported: data.imported_count || 0,
@@ -156,6 +161,7 @@ export default function Dashboard() {
         }
       } else if (data.status === 'completed') {
         // Job just completed
+        console.log('[Sync Status] Completed - stopping indicator')
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
         setRateLimitInfo(null)
@@ -163,13 +169,21 @@ export default function Dashboard() {
         await loadRepositories()
       } else if (data.status === 'failed') {
         // Job failed
+        console.log('[Sync Status] Failed - stopping indicator')
         setIsBackgroundSyncing(false)
         setSyncProgress(null)
         setRateLimitInfo(null)
         console.error('Background sync failed:', data.error_message)
+      } else {
+        // Unknown status - stop syncing indicator to be safe
+        console.warn('[Sync Status] Unknown status:', data.status, '- stopping indicator')
+        setIsBackgroundSyncing(false)
+        setSyncProgress(null)
       }
     } catch (e) {
-      console.error('Failed to check sync status:', e)
+      console.error('[Sync Status] Failed to check sync status:', e)
+      // Stop syncing indicator on error
+      setIsBackgroundSyncing(false)
     }
   }
 
@@ -247,21 +261,37 @@ export default function Dashboard() {
   }
 
   async function handleReindex() {
-    if (!selectedRepo) return
+    if (!selectedRepo) {
+      console.error('[Re-index] No repository selected')
+      return
+    }
+
+    console.log('[Re-index] Starting re-index for:', selectedRepo.project_id)
 
     try {
-      const res = await fetch(API_ENDPOINTS.reindex(selectedRepo.project_id), {
+      const endpoint = API_ENDPOINTS.reindex(selectedRepo.project_id)
+      console.log('[Re-index] Calling endpoint:', endpoint)
+
+      const res = await fetch(endpoint, {
         method: 'POST'
       })
 
+      console.log('[Re-index] Response status:', res.status)
+
       if (!res.ok) {
-        throw new Error('Failed to start re-indexing')
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+        console.error('[Re-index] Error response:', errorData)
+        throw new Error(errorData.detail || 'Failed to start re-indexing')
       }
+
+      const result = await res.json()
+      console.log('[Re-index] Success:', result)
 
       // Refresh repository list to show updated status
       await loadRepositories()
     } catch (e) {
-      console.error('Failed to start re-indexing:', e)
+      console.error('[Re-index] Failed to start re-indexing:', e)
+      alert(`Failed to start re-indexing: ${e instanceof Error ? e.message : 'Unknown error'}`)
     }
   }
 
@@ -363,6 +393,8 @@ export default function Dashboard() {
         onSelectRepo={setSelectedProjectId}
         onNewRepo={() => setShowIndexModal(true)}
         onSettingsClick={() => setShowSettingsModal(true)}
+        isDark={isDark}
+        onToggleDarkMode={toggleDarkMode}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -473,26 +505,6 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowSettingsModal(true)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                  title="Settings"
-                >
-                  <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleDarkMode}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                  title="Toggle dark mode"
-                >
-                  {isDark ? (
-                    <Sun className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                  ) : (
-                    <Moon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                  )}
-                </button>
-                <button
-                  type="button"
                   onClick={handleReindex}
                   disabled={selectedRepo.status === 'indexing'}
                   className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -501,63 +513,42 @@ export default function Dashboard() {
                   <RefreshCw className={`w-4 h-4 ${selectedRepo.status === 'indexing' ? 'animate-spin' : ''}`} />
                   {selectedRepo.status === 'indexing' ? 'Indexing...' : 'Re-index Code'}
                 </button>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSync}
-                    disabled={selectedRepo.status !== 'indexed'}
-                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : syncing ? 'Click to stop sync' : 'Sync issues and PRs from GitHub'}
-                  >
-                    {syncing ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                        Stop Sync
-                      </>
-                    ) : (
-                      <>
-                        <Github className="w-4 h-4" />
-                        Sync Issues/PRs
-                      </>
-                    )}
-                  </button>
 
-                  {/* Background Sync Indicator */}
-                  {isBackgroundSyncing && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                      <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 dark:border-blue-400 border-t-transparent"></div>
-                      <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                        {syncProgress && syncProgress.total > 0
-                          ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
-                          : 'Syncing...'
-                        }
-                      </span>
-                    </div>
-                  )}
+                {/* Background Sync Indicator */}
+                {isBackgroundSyncing && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 dark:border-blue-400 border-t-transparent"></div>
+                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                      {syncProgress && syncProgress.total > 0
+                        ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
+                        : 'Syncing...'
+                      }
+                    </span>
+                  </div>
+                )}
 
-                  {/* Rate Limit Banner */}
-                  {rateLimitInfo && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
-                          Rate limit exceeded
+                {/* Rate Limit Banner */}
+                {rateLimitInfo && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
+                        Rate limit exceeded
+                      </p>
+                      {rateLimitInfo.resetTime && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
+                          Resets in: {formatTimeRemaining(rateLimitInfo.resetTime)}
                         </p>
-                        {rateLimitInfo.resetTime && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
-                            Resets in: {formatTimeRemaining(rateLimitInfo.resetTime)}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setShowSettingsModal(true)}
-                        className="px-2 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
-                      >
-                        Add Token
-                      </button>
+                      )}
                     </div>
-                  )}
-                </div>
+                    <button
+                      onClick={() => setShowSettingsModal(true)}
+                      className="px-2 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
+                    >
+                      Add Token
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -572,6 +563,7 @@ export default function Dashboard() {
                 onImport={loadRepositories}
                 onOpenSettings={() => setShowSettingsModal(true)}
                 onReindex={handleReindex}
+                isBackgroundSyncing={isBackgroundSyncing}
               />
             ) : issuesView === 'categorized' ? (
               <CategorizedIssuesPanel
