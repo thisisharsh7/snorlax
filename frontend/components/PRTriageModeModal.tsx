@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { API_ENDPOINTS } from '@/lib/config'
 import { ExternalLink } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 interface PullRequest {
   number: number
@@ -277,18 +280,76 @@ export default function PRTriageModeModal({ projectId, isOpen, onClose, initialP
 
                 {/* PR Description */}
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6">
-                  <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Description</h4>
-                  <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans">
-                    {currentPR.body
-                      ? (prBodyExpanded
-                          ? currentPR.body
-                          : currentPR.body.substring(0, 800) + (currentPR.body.length > 800 ? '...' : ''))
-                      : 'No description provided'}
-                  </pre>
+                  <h4 className="font-semibold mb-3 text-gray-900 dark:text-white text-sm">Description</h4>
+                  <div className="text-sm text-gray-700 dark:text-gray-300 break-words overflow-x-auto">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ node, children, ...props }) => {
+                          // Convert plain URLs to clickable links
+                          const urlRegex = /(https?:\/\/[^\s]+)/g;
+                          const processedChildren = typeof children === 'string'
+                            ? children.split(urlRegex).map((part, i) =>
+                                urlRegex.test(part) ? (
+                                  <a key={i} href={part} className="text-blue-600 dark:text-blue-400 hover:underline break-all" target="_blank" rel="noopener noreferrer">
+                                    {part}
+                                  </a>
+                                ) : part
+                              )
+                            : children;
+                          return <p className="my-2 text-sm leading-relaxed" {...props}>{processedChildren}</p>;
+                        },
+                        a: ({ node, ...props }) => (
+                          <a {...props} className="text-blue-600 dark:text-blue-400 hover:underline break-all" target="_blank" rel="noopener noreferrer" />
+                        ),
+                        code: ({ node, inline, className, children, ...props }: any) => {
+                          const match = /language-(\w+)/.exec(className || '')
+                          return !inline && match ? (
+                            <SyntaxHighlighter
+                              style={vscDarkPlus}
+                              language={match[1]}
+                              PreTag="div"
+                              className="rounded-md my-2 text-xs overflow-x-auto"
+                              {...props}
+                            >
+                              {String(children).replace(/\n$/, '')}
+                            </SyntaxHighlighter>
+                          ) : (
+                            <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs font-mono break-all" {...props}>
+                              {children}
+                            </code>
+                          )
+                        },
+                        pre: ({ node, ...props }) => (
+                          <pre className="bg-gray-200 dark:bg-gray-700 p-2 rounded-md overflow-x-auto text-xs my-2" {...props} />
+                        ),
+                        img: ({ node, ...props }) => (
+                          <img {...props} className="max-w-full h-auto rounded-md my-2" alt={props.alt || ''} />
+                        ),
+                        h1: ({ node, ...props }) => <h1 className="text-base font-bold mt-3 mb-1.5 text-gray-900 dark:text-white" {...props} />,
+                        h2: ({ node, ...props }) => <h2 className="text-sm font-bold mt-2.5 mb-1.5 text-gray-900 dark:text-white" {...props} />,
+                        h3: ({ node, ...props }) => <h3 className="text-sm font-semibold mt-2 mb-1 text-gray-900 dark:text-white" {...props} />,
+                        h4: ({ node, ...props }) => <h4 className="text-sm font-semibold mt-2 mb-1 text-gray-900 dark:text-white" {...props} />,
+                        h5: ({ node, ...props }) => <h5 className="text-sm font-medium mt-1.5 mb-1 text-gray-900 dark:text-white" {...props} />,
+                        h6: ({ node, ...props }) => <h6 className="text-sm font-medium mt-1.5 mb-1 text-gray-900 dark:text-white" {...props} />,
+                        ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2 text-sm" {...props} />,
+                        ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2 text-sm" {...props} />,
+                        li: ({ node, ...props }) => <li className="my-0.5 text-sm" {...props} />,
+                        blockquote: ({ node, ...props }) => (
+                          <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-3 italic my-2 text-sm" {...props} />
+                        ),
+                      }}
+                    >
+                      {currentPR.body
+                        ? (prBodyExpanded
+                            ? currentPR.body
+                            : currentPR.body.substring(0, 800) + (currentPR.body.length > 800 ? '...' : ''))
+                        : 'No description provided'}
+                    </ReactMarkdown>
+                  </div>
                   {currentPR.body && currentPR.body.length > 800 && (
                     <button
                       onClick={() => setPrBodyExpanded(!prBodyExpanded)}
-                      className="mt-3 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                      className="mt-3 text-blue-600 hover:text-blue-700 text-xs font-medium"
                     >
                       {prBodyExpanded ? 'Show Less' : 'Show More'}
                     </button>
