@@ -92,13 +92,6 @@
       "when": 1737896580000,
       "tag": "0012_add_rate_limit_tracking",
       "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "1",
-      "when": 1738368000000,
-      "tag": "0013_repository_sync_tracking",
-      "breakpoints": true
     }
   ]
 }

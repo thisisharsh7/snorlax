@@ -98,19 +98,6 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
 
         {/* Icons - Right Side */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Sync Status Indicator */}
-          {isBackgroundSyncing && (
-            <div
-              className="p-1.5 rounded-lg"
-              title={syncProgress && syncProgress.total > 0
-                ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
-                : 'Syncing...'
-              }
-            >
-              <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
-            </div>
-          )}
-
           {/* Dark Mode Button */}
           <button
             type="button"

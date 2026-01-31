@@ -164,7 +164,7 @@ class SyncJobManager:
                     FROM sync_jobs
                     WHERE project_id = %s
                       AND status NOT IN ('completed', 'failed')
-                      AND (status != 'in_progress' OR started_at > NOW() - INTERVAL '5 minutes')
+                      AND (status != 'in_progress' OR started_at > NOW() - INTERVAL '1 hour')
                     ORDER BY started_at DESC
                     LIMIT 1
                 """, (project_id,))
@@ -188,13 +188,12 @@ class SyncJobManager:
                     "rate_limit_reset_time": row[11].isoformat() if row[11] else None
                 }
 
-    def cleanup_stuck_jobs(self, timeout_minutes: int = 5) -> int:
+    def cleanup_stuck_jobs(self, timeout_hours: int = 1) -> int:
         """
-        Clean up jobs stuck in 'in_progress' for too long.
+        Clean up jobs that have been stuck in 'in_progress' for too long.
 
         Args:
-            timeout_minutes: Jobs in 'in_progress' for longer than this are marked as failed
-                            (default: 5 minutes - background sync should complete in 2-3 minutes)
+            timeout_hours: Number of hours before a job is considered stuck
 
         Returns:
             Number of jobs cleaned up
@@ -207,11 +206,11 @@ class SyncJobManager:
                         error_message = %s,
                         completed_at = NOW()
                     WHERE status = 'in_progress'
-                      AND started_at < NOW() - INTERVAL '1 minute' * %s
-                    RETURNING id, project_id, started_at
+                      AND started_at < NOW() - INTERVAL '%s hours'
+                    RETURNING id, project_id
                 """, (
-                    f'Job timed out after {timeout_minutes} minutes',
-                    timeout_minutes
+                    f'Job timeout - exceeded {timeout_hours} hour(s)',
+                    timeout_hours
                 ))
 
                 cleaned = cur.fetchall()
@@ -220,87 +219,10 @@ class SyncJobManager:
                 if cleaned:
                     logger.warning(
                         f"Cleaned up {len(cleaned)} stuck jobs: "
-                        f"{[(row[0], row[1]) for row in cleaned]}"
+                        f"{[row[0] for row in cleaned]}"
                     )
 
                 return len(cleaned)
-
-    def is_repo_fully_synced(self, project_id: str) -> bool:
-        """
-        Check if a repository is already fully synced.
-
-        Returns True if:
-        - All open issues are synced (synced_count >= total_count)
-        - All open PRs are synced (synced_count >= total_count)
-        - Last sync was within last 5 minutes (fresh data)
-
-        Returns False if:
-        - No sync state exists
-        - Total count is unknown (NULL)
-        - Synced count < total count (incomplete)
-        - Last sync was > 5 minutes ago (stale data)
-        """
-        with self.get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT
-                        item_type,
-                        state,
-                        total_count,
-                        synced_count,
-                        last_synced_at
-                    FROM repository_sync_state
-                    WHERE project_id = %s
-                        AND state = 'open'  -- Only check open items
-                        AND last_synced_at > NOW() - INTERVAL '5 minutes'
-                """, (project_id,))
-
-                rows = cur.fetchall()
-
-                if not rows:
-                    return False  # No sync state = not synced
-
-                # We need both issues and PRs to be fully synced
-                synced_types = set()
-                for item_type, state, total_count, synced_count, last_synced_at in rows:
-                    # If total is unknown, can't determine if fully synced
-                    if total_count is None:
-                        return False
-
-                    # If we haven't synced everything, not fully synced
-                    if synced_count < total_count:
-                        return False
-
-                    synced_types.add(item_type)
-
-                # Must have synced both issues and PRs
-                # If total_count is 0, we still need the row to exist
-                return 'issue' in synced_types and 'pr' in synced_types
-
-    def update_repo_sync_state(
-        self,
-        project_id: str,
-        item_type: str,  # 'issue' or 'pr'
-        state: str,      # 'open' or 'closed'
-        total_count: Optional[int],
-        synced_count: int
-    ):
-        """Update or create repository sync state tracking."""
-        with self.get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO repository_sync_state (
-                        project_id, item_type, state, total_count, synced_count, last_synced_at, updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
-                    ON CONFLICT (project_id, item_type, state)
-                    DO UPDATE SET
-                        total_count = COALESCE(EXCLUDED.total_count, repository_sync_state.total_count),
-                        synced_count = repository_sync_state.synced_count + EXCLUDED.synced_count,
-                        last_synced_at = NOW(),
-                        updated_at = NOW()
-                """, (project_id, item_type, state, total_count, synced_count))
-                conn.commit()
 
 
 async def fetch_with_batches(
@@ -421,20 +343,6 @@ async def fetch_with_batches(
                 total_count=result.get("total_estimate")
             )
 
-            # Update repository sync state
-            if result.get("total_estimate") is not None:
-                # Determine item type from function name
-                func_name = str(fetch_func)
-                item_type = 'issue' if 'issue' in func_name.lower() else 'pr'
-
-                job_manager.update_repo_sync_state(
-                    project_id=project_id,
-                    item_type=item_type,
-                    state=state,
-                    total_count=result.get("total_estimate"),
-                    synced_count=imported_this_batch + updated_this_batch
-                )
-
             logger.info(
                 f"Batch {batch_num} complete: {imported_this_batch} new, {updated_this_batch} updated, "
                 f"{fetched_this_batch} fetched (total: {total_imported})"
@@ -511,17 +419,6 @@ async def background_import_remaining(
     """
     logger.info(f"Starting background import for project {project_id}, job {job_id}")
 
-    # Check if repository is already fully synced
-    if job_manager.is_repo_fully_synced(project_id):
-        logger.info(f"✓ Repository {project_id} is already fully synced. Skipping background import.")
-        job_manager.update_job_status(
-            job_id,
-            'completed',
-            completed_at=datetime.now(timezone.utc),
-            rate_limited=False
-        )
-        return
-
     # Update job status to in_progress
     job_manager.update_job_status(job_id, 'in_progress')
 
@@ -583,7 +480,7 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                # Convert timestamp to datetime
+                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(
@@ -636,7 +533,7 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                # Convert timestamp to datetime
+                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(
@@ -672,7 +569,7 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                # Convert timestamp to datetime
+                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(
