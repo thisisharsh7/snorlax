@@ -163,6 +163,14 @@ export default function IndexModal({ isOpen, onClose, onIndexComplete }: IndexMo
         updateStage('ready', 'completed')
         setIndexing(false)
         setComplete(true)
+      } else if (data.status === 'recently_synced' || data.status === 'already_synced') {
+        console.log('✅ [DEBUG] Already synced - skipping redundant sync')
+        console.log(data.message)
+        // Mark as complete since data is already available
+        updateStage('import', 'completed')
+        updateStage('ready', 'completed')
+        setIndexing(false)
+        setComplete(true)
       } else if (data.status === 'initial_complete') {
         console.log('✅ [DEBUG] Initial complete path')
 

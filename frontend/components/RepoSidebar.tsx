@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Github, Trash2, Settings, Sun, Moon } from 'lucide-react'
+import { Github, Trash2, Settings, Sun, Moon, RefreshCw, Plus } from 'lucide-react'
 import DeleteRepoModal from './DeleteRepoModal'
 import { API_ENDPOINTS } from '@/lib/config'
 
@@ -20,9 +20,12 @@ interface RepoSidebarProps {
   onSettingsClick: () => void
   isDark: boolean
   onToggleDarkMode: () => void
+  onReindex: (projectId: string) => void
+  isBackgroundSyncing: boolean
+  syncProgress: {imported: number, total: number} | null
 }
 
-export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo, onSettingsClick, isDark, onToggleDarkMode }: RepoSidebarProps) {
+export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo, onSettingsClick, isDark, onToggleDarkMode, onReindex, isBackgroundSyncing, syncProgress }: RepoSidebarProps) {
   const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -69,16 +72,9 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
         throw new Error(data.detail || 'Failed to delete repository')
       }
 
-      // Optimistic update - remove from list immediately
-      setRepos(repos.filter(r => r.project_id !== projectId))
-
-      // Clear selection if deleted repo was selected
-      if (selectedProjectId === projectId) {
-        onSelectRepo('')
-      }
-
-      // Refresh list from server
-      await loadRepositories()
+      // Refresh the page to sync all state and clear cached data
+      // This ensures the main content panel is properly cleared
+      window.location.reload()
     } catch (e) {
       console.error('Failed to delete repository:', e)
       throw e
@@ -87,12 +83,35 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
 
   return (
     <div className="w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col h-screen">
-      {/* Header */}
-      <div className="p-4 flex items-center justify-between flex-shrink-0">
-        <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">
-          Repositories
-        </h2>
-        <div className="flex items-center gap-1">
+      {/* Header with Add Repository Button */}
+      <div className=" py-4 px-2 flex items-center justify-between flex-shrink-0">
+        {/* Add Repository Button - Left Side */}
+        <button
+          type="button"
+          onClick={onNewRepo}
+          className="flex items-center gap-2 bg-gray-900 dark:bg-gray-800 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-gray-800 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+          title="Add a new repository to index"
+        >
+          <Plus className="w-5 h-5" />
+          <span>Add Repository</span>
+        </button>
+
+        {/* Icons - Right Side */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Sync Status Indicator */}
+          {isBackgroundSyncing && (
+            <div
+              className="p-1.5 rounded-lg"
+              title={syncProgress && syncProgress.total > 0
+                ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
+                : 'Syncing...'
+              }
+            >
+              <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
+            </div>
+          )}
+
+          {/* Dark Mode Button */}
           <button
             type="button"
             onClick={onToggleDarkMode}
@@ -105,6 +124,8 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
               <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
             )}
           </button>
+
+          {/* Settings Button */}
           <button
             type="button"
             onClick={onSettingsClick}
@@ -112,16 +133,6 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
             title="Settings - Configure API Keys"
           >
             <Settings className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          </button>
-          <button
-            type="button"
-            onClick={onNewRepo}
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
-            title="Index New Repository"
-          >
-            <svg className="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
           </button>
         </div>
       </div>
@@ -158,7 +169,31 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
                       : 'hover:bg-gray-150 dark:hover:bg-gray-850'
                   } ${repo.status !== 'indexed' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
-                  <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />
+                  {/* Icon - Changes on hover for indexed repos */}
+                  {hoveredId === repo.project_id && repo.status === 'indexed' ? (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onReindex(repo.project_id)
+                      }}
+                      className="p-0.5 hover:bg-gray-300 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0 cursor-pointer"
+                      title="Re-index code"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          onReindex(repo.project_id)
+                        }
+                      }}
+                    >
+                      <RefreshCw className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  ) : (
+                    <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />
+                  )}
+
                   <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
                     {repo.repo_name}
                   </span>

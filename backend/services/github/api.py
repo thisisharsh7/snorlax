@@ -744,6 +744,16 @@ class GitHubService:
             # Fetch issues with state filter
             issues = repo.get_issues(state=state, sort='updated', direction='desc')
 
+            # Capture total count from GitHub API
+            # This provides smart early stopping for efficient batch processing
+            total_available = None
+            try:
+                total_available = issues.totalCount
+                logger.info(f"GitHub reports {total_available} total {state} issues")
+            except Exception as e:
+                logger.warning(f"Could not get total count: {e}")
+                # Gracefully fallback - continue without total count
+
             logger.info(f"Fetching {state} issues: limit={limit}, offset={offset}")
 
             # Use islice to skip offset items and take limit items
@@ -818,7 +828,8 @@ class GitHubService:
                 "imported": imported_count,
                 "updated": updated_count,
                 "fetched": fetched_count,
-                "total": imported_count + updated_count
+                "total": imported_count + updated_count,
+                "total_estimate": total_available  # Include total from GitHub API
             }
 
         except Exception as e:
@@ -896,6 +907,16 @@ class GitHubService:
 
             # Fetch PRs with state filter
             prs = repo.get_pulls(state=state, sort='updated', direction='desc')
+
+            # Capture total count from GitHub API
+            # This provides smart early stopping for efficient batch processing
+            total_available = None
+            try:
+                total_available = prs.totalCount
+                logger.info(f"GitHub reports {total_available} total {state} PRs")
+            except Exception as e:
+                logger.warning(f"Could not get total count: {e}")
+                # Gracefully fallback - continue without total count
 
             logger.info(f"Fetching {state} PRs: limit={limit}, offset={offset}")
 
@@ -990,7 +1011,8 @@ class GitHubService:
                 "imported": imported_count,
                 "updated": updated_count,
                 "fetched": fetched_count,
-                "total": imported_count + updated_count
+                "total": imported_count + updated_count,
+                "total_estimate": total_available  # Include total from GitHub API
             }
 
         except Exception as e:

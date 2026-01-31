@@ -41,40 +41,52 @@ class IssueEmbeddingService:
         Returns:
             True if successful
         """
-        with self.db_pool.connection() as conn:
-            register_vector(conn)
-            with conn.cursor() as cur:
-                # Fetch issue data
-                cur.execute("""
-                    SELECT title, body
-                    FROM github_issues
-                    WHERE project_id = %s AND issue_number = %s
-                """, (project_id, issue_number))
+        # Retry logic for stale connections
+        for attempt in range(2):
+            try:
+                with self.db_pool.connection() as conn:
+                    register_vector(conn)
+                    with conn.cursor() as cur:
+                        # Fetch issue data
+                        cur.execute("""
+                            SELECT title, body
+                            FROM github_issues
+                            WHERE project_id = %s AND issue_number = %s
+                        """, (project_id, issue_number))
 
-                result = cur.fetchone()
-                if not result:
-                    return False
+                        result = cur.fetchone()
+                        if not result:
+                            return False
 
-                title, body = result
-                text = self._combine_text(title, body)
+                        title, body = result
+                        text = self._combine_text(title, body)
 
-                # Generate embedding using CocoIndex's transform flow
-                # This ensures consistency with code embeddings
-                embedding = code_to_embedding.eval(text)
+                        # Generate embedding using CocoIndex's transform flow
+                        # This ensures consistency with code embeddings
+                        embedding = code_to_embedding.eval(text)
 
-                # Store in issue_embeddings table
-                cur.execute("""
-                    INSERT INTO issue_embeddings
-                        (project_id, issue_number, type, embedding)
-                    VALUES (%s, %s, 'issue', %s)
-                    ON CONFLICT (project_id, type, issue_number)
-                    DO UPDATE SET
-                        embedding = EXCLUDED.embedding,
-                        updated_at = NOW()
-                """, (project_id, issue_number, embedding))
+                        # Store in issue_embeddings table
+                        cur.execute("""
+                            INSERT INTO issue_embeddings
+                                (project_id, issue_number, type, embedding)
+                            VALUES (%s, %s, 'issue', %s)
+                            ON CONFLICT (project_id, type, issue_number)
+                            DO UPDATE SET
+                                embedding = EXCLUDED.embedding,
+                                updated_at = NOW()
+                        """, (project_id, issue_number, embedding))
 
-                conn.commit()
-                return True
+                        conn.commit()
+                        return True
+            except Exception as e:
+                if attempt == 0 and "closed" in str(e).lower():
+                    # Connection was stale, retry once
+                    print(f"Retrying due to stale connection: {e}")
+                    continue
+                else:
+                    # Real error or second attempt failed
+                    raise
+        return False
 
     def generate_pr_embedding(self, project_id: str, pr_number: int) -> bool:
         """
@@ -87,39 +99,51 @@ class IssueEmbeddingService:
         Returns:
             True if successful
         """
-        with self.db_pool.connection() as conn:
-            register_vector(conn)
-            with conn.cursor() as cur:
-                # Fetch PR data
-                cur.execute("""
-                    SELECT title, body
-                    FROM github_pull_requests
-                    WHERE project_id = %s AND pr_number = %s
-                """, (project_id, pr_number))
+        # Retry logic for stale connections
+        for attempt in range(2):
+            try:
+                with self.db_pool.connection() as conn:
+                    register_vector(conn)
+                    with conn.cursor() as cur:
+                        # Fetch PR data
+                        cur.execute("""
+                            SELECT title, body
+                            FROM github_pull_requests
+                            WHERE project_id = %s AND pr_number = %s
+                        """, (project_id, pr_number))
 
-                result = cur.fetchone()
-                if not result:
-                    return False
+                        result = cur.fetchone()
+                        if not result:
+                            return False
 
-                title, body = result
-                text = self._combine_text(title, body)
+                        title, body = result
+                        text = self._combine_text(title, body)
 
-                # Generate embedding using CocoIndex
-                embedding = code_to_embedding.eval(text)
+                        # Generate embedding using CocoIndex
+                        embedding = code_to_embedding.eval(text)
 
-                # Store in issue_embeddings table (type='pr')
-                cur.execute("""
-                    INSERT INTO issue_embeddings
-                        (project_id, pr_number, type, embedding)
-                    VALUES (%s, %s, 'pr', %s)
-                    ON CONFLICT (project_id, type, pr_number)
-                    DO UPDATE SET
-                        embedding = EXCLUDED.embedding,
-                        updated_at = NOW()
-                """, (project_id, pr_number, embedding))
+                        # Store in issue_embeddings table (type='pr')
+                        cur.execute("""
+                            INSERT INTO issue_embeddings
+                                (project_id, pr_number, type, embedding)
+                            VALUES (%s, %s, 'pr', %s)
+                            ON CONFLICT (project_id, type, pr_number)
+                            DO UPDATE SET
+                                embedding = EXCLUDED.embedding,
+                                updated_at = NOW()
+                        """, (project_id, pr_number, embedding))
 
-                conn.commit()
-                return True
+                        conn.commit()
+                        return True
+            except Exception as e:
+                if attempt == 0 and "closed" in str(e).lower():
+                    # Connection was stale, retry once
+                    print(f"Retrying due to stale connection: {e}")
+                    continue
+                else:
+                    # Real error or second attempt failed
+                    raise
+        return False
 
     def generate_all_embeddings(self, project_id: str) -> Dict[str, int]:
         """

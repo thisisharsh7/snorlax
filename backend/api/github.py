@@ -394,6 +394,32 @@ async def import_initial_batch(
                 "total_count": existing_job.get("total_count", 0)
             }
 
+        # Check if repository was recently synced (cooldown: 30 seconds)
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT last_synced_at FROM repositories
+                   WHERE project_id = %s
+                   AND last_synced_at > NOW() - INTERVAL '30 seconds'""",
+                (project_id,)
+            )
+            recent_sync = cur.fetchone()
+            cur.close()
+
+        if recent_sync:
+            return {
+                "status": "recently_synced",
+                "message": "Repository was synced less than 30 seconds ago. Please wait before syncing again.",
+                "last_synced_at": recent_sync[0].isoformat() if recent_sync[0] else None
+            }
+
+        # Check if repository is already fully synced
+        if job_manager.is_repo_fully_synced(project_id):
+            return {
+                "status": "already_synced",
+                "message": "Repository is already fully synced. All data is up to date.",
+            }
+
         # Get GitHub service with current token
         github_service = get_github_service()
 
@@ -405,6 +431,25 @@ async def import_initial_batch(
         prs_result = github_service.import_prs_by_state(
             project_id, state='open', limit=50, offset=0
         )
+
+        # Update repository sync state with initial sync results
+        if issues_result.get("total_estimate") is not None:
+            job_manager.update_repo_sync_state(
+                project_id=project_id,
+                item_type='issue',
+                state='open',
+                total_count=issues_result.get("total_estimate"),
+                synced_count=issues_result.get("imported", 0) + issues_result.get("updated", 0)
+            )
+
+        if prs_result.get("total_estimate") is not None:
+            job_manager.update_repo_sync_state(
+                project_id=project_id,
+                item_type='pr',
+                state='open',
+                total_count=prs_result.get("total_estimate"),
+                synced_count=prs_result.get("imported", 0) + prs_result.get("updated", 0)
+            )
 
         # Create background job record (only if no existing job)
         job_id = job_manager.create_sync_job(project_id, job_type='full', priority='open')
@@ -468,8 +513,8 @@ async def get_sync_status(project_id: str):
         db_url = os.getenv("APP_DATABASE_URL")
         job_manager = SyncJobManager(db_url)
 
-        # Clean up any stuck jobs before checking status
-        job_manager.cleanup_stuck_jobs(timeout_hours=1)
+        # Clean up any stuck jobs before checking status (5 minutes)
+        job_manager.cleanup_stuck_jobs(timeout_minutes=5)
 
         status = job_manager.get_job_status(project_id)
 

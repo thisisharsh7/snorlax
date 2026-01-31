@@ -5,8 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
 import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
-import TriageDashboard from '@/components/TriageDashboard'
 import TriageModeModal from '@/components/TriageModeModal'
+import PRTriageModeModal from '@/components/PRTriageModeModal'
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
 import { Github, Settings, Sun, Moon, RefreshCw, AlertTriangle } from 'lucide-react'
@@ -30,8 +30,10 @@ export default function Dashboard() {
   const [showIndexModal, setShowIndexModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showTriageModal, setShowTriageModal] = useState(false)
+  const [selectedIssueForTriage, setSelectedIssueForTriage] = useState<number | null>(null)
+  const [showPRTriageModal, setShowPRTriageModal] = useState(false)
+  const [selectedPRForTriage, setSelectedPRForTriage] = useState<number | null>(null)
   const [repos, setRepos] = useState<Repository[]>([])
-  const [issuesView, setIssuesView] = useState<'basic' | 'categorized' | 'triage'>('triage')
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showBanner, setShowBanner] = useState(true)
@@ -260,16 +262,18 @@ export default function Dashboard() {
     console.log('✅ [DEBUG] Project selected:', projectId)
   }
 
-  async function handleReindex() {
-    if (!selectedRepo) {
+  async function handleReindex(projectId?: string) {
+    const targetProjectId = projectId || selectedRepo?.project_id
+
+    if (!targetProjectId) {
       console.error('[Re-index] No repository selected')
       return
     }
 
-    console.log('[Re-index] Starting re-index for:', selectedRepo.project_id)
+    console.log('[Re-index] Starting re-index for:', targetProjectId)
 
     try {
-      const endpoint = API_ENDPOINTS.reindex(selectedRepo.project_id)
+      const endpoint = API_ENDPOINTS.reindex(targetProjectId)
       console.log('[Re-index] Calling endpoint:', endpoint)
 
       const res = await fetch(endpoint, {
@@ -395,6 +399,9 @@ export default function Dashboard() {
         onSettingsClick={() => setShowSettingsModal(true)}
         isDark={isDark}
         onToggleDarkMode={toggleDarkMode}
+        onReindex={handleReindex}
+        isBackgroundSyncing={isBackgroundSyncing}
+        syncProgress={syncProgress}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -437,147 +444,52 @@ export default function Dashboard() {
 
         {selectedRepo ? (
         <div className="flex-1 flex flex-col min-h-0">
-          {/* Unified Header */}
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-            <div className="flex justify-between items-center">
-              {/* Tab Buttons */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedRepo.status === 'indexed') {
-                      setIssuesView('basic')
-                    }
-                  }}
-                  disabled={selectedRepo.status !== 'indexed'}
-                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    issuesView === 'basic'
-                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : selectedRepo.status === 'indexed'
-                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
-                  }`}
-                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
-                >
-                  Issues & PRs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedRepo.status === 'indexed') {
-                      setIssuesView('categorized')
-                    }
-                  }}
-                  disabled={selectedRepo.status !== 'indexed'}
-                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    issuesView === 'categorized'
-                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : selectedRepo.status === 'indexed'
-                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
-                  }`}
-                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
-                >
-                  AI Analysis
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedRepo.status === 'indexed') {
-                      setIssuesView('triage')
-                    }
-                  }}
-                  disabled={selectedRepo.status !== 'indexed'}
-                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    issuesView === 'triage'
-                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                      : selectedRepo.status === 'indexed'
-                      ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      : 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
-                  }`}
-                  title={selectedRepo.status !== 'indexed' ? 'Repository must be indexed first' : ''}
-                >
-                  Triage Dashboard
-                </button>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleReindex}
-                  disabled={selectedRepo.status === 'indexing'}
-                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={selectedRepo.status === 'indexing' ? 'Repository is currently indexing' : 'Re-index code to update embeddings'}
-                >
-                  <RefreshCw className={`w-4 h-4 ${selectedRepo.status === 'indexing' ? 'animate-spin' : ''}`} />
-                  {selectedRepo.status === 'indexing' ? 'Indexing...' : 'Re-index Code'}
-                </button>
-
-                {/* Background Sync Indicator */}
-                {isBackgroundSyncing && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 dark:border-blue-400 border-t-transparent"></div>
-                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                      {syncProgress && syncProgress.total > 0
-                        ? `Syncing... ${syncProgress.imported}/${syncProgress.total}`
-                        : 'Syncing...'
-                      }
-                    </span>
-                  </div>
-                )}
-
-                {/* Rate Limit Banner */}
-                {rateLimitInfo && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
-                        Rate limit exceeded
+          {/* Rate Limit Banner - Background sync moved to sidebar */}
+          {rateLimitInfo && (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <div className="flex justify-end items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
+                      Rate limit exceeded
+                    </p>
+                    {rateLimitInfo.resetTime && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
+                        Resets in: {formatTimeRemaining(rateLimitInfo.resetTime)}
                       </p>
-                      {rateLimitInfo.resetTime && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
-                          Resets in: {formatTimeRemaining(rateLimitInfo.resetTime)}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setShowSettingsModal(true)}
-                      className="px-2 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
-                    >
-                      Add Token
-                    </button>
+                    )}
                   </div>
-                )}
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="px-2 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
+                  >
+                    Add Token
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Content */}
           {selectedRepo.status === 'indexed' ? (
-            issuesView === 'basic' ? (
-              <IssuesPRsPanel
-                projectId={selectedRepo.project_id}
-                repoName={selectedRepo.repo_name}
-                lastSyncedAt={selectedRepo.last_synced_at}
-                onImport={loadRepositories}
-                onOpenSettings={() => setShowSettingsModal(true)}
-                onReindex={handleReindex}
-                isBackgroundSyncing={isBackgroundSyncing}
-              />
-            ) : issuesView === 'categorized' ? (
-              <CategorizedIssuesPanel
-                projectId={selectedRepo.project_id}
-                repoName={selectedRepo.repo_name}
-              />
-            ) : (
-              <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-6">
-                <TriageDashboard
-                  projectId={selectedRepo.project_id}
-                  onEnterTriageMode={() => setShowTriageModal(true)}
-                />
-              </div>
-            )
+            <IssuesPRsPanel
+              projectId={selectedRepo.project_id}
+              repoName={selectedRepo.repo_name}
+              lastSyncedAt={selectedRepo.last_synced_at}
+              onImport={loadRepositories}
+              onOpenSettings={() => setShowSettingsModal(true)}
+              onReindex={handleReindex}
+              isBackgroundSyncing={isBackgroundSyncing}
+              onOpenTriage={(issueNumber) => {
+                setSelectedIssueForTriage(issueNumber)
+                setShowTriageModal(true)
+              }}
+              onOpenPRTriage={(prNumber) => {
+                setSelectedPRForTriage(prNumber)
+                setShowPRTriageModal(true)
+              }}
+            />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
               <div className="text-center max-w-2xl px-4">
@@ -639,11 +551,26 @@ export default function Dashboard() {
       />
 
       {selectedRepo && (
-        <TriageModeModal
-          projectId={selectedRepo.project_id}
-          isOpen={showTriageModal}
-          onClose={() => setShowTriageModal(false)}
-        />
+        <>
+          <TriageModeModal
+            projectId={selectedRepo.project_id}
+            isOpen={showTriageModal}
+            onClose={() => {
+              setShowTriageModal(false)
+              setSelectedIssueForTriage(null)
+            }}
+            initialIssueNumber={selectedIssueForTriage}
+          />
+          <PRTriageModeModal
+            projectId={selectedRepo.project_id}
+            isOpen={showPRTriageModal}
+            onClose={() => {
+              setShowPRTriageModal(false)
+              setSelectedPRForTriage(null)
+            }}
+            initialPRNumber={selectedPRForTriage}
+          />
+        </>
       )}
     </div>
   )

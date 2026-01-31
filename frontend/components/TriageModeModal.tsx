@@ -43,6 +43,7 @@ interface TriageModeModalProps {
   projectId: string
   isOpen: boolean
   onClose: () => void
+  initialIssueNumber?: number | null
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -62,7 +63,7 @@ function CategoryBadge({ category }: { category: string }) {
   )
 }
 
-export default function TriageModeModal({ projectId, isOpen, onClose }: TriageModeModalProps) {
+export default function TriageModeModal({ projectId, isOpen, onClose, initialIssueNumber }: TriageModeModalProps) {
   const [issues, setIssues] = useState<Issue[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [analysis, setAnalysis] = useState<TriageAnalysis | null>(null)
@@ -105,6 +106,18 @@ export default function TriageModeModal({ projectId, isOpen, onClose }: TriageMo
       controller.abort() // Cancel any pending requests on unmount
     }
   }, [isOpen, projectId])
+
+  // Set current index to initialIssueNumber if provided
+  useEffect(() => {
+    if (isOpen && initialIssueNumber && issues.length > 0) {
+      const index = issues.findIndex(
+        issue => issue.issue_number === initialIssueNumber
+      )
+      if (index !== -1) {
+        setCurrentIndex(index)
+      }
+    }
+  }, [isOpen, initialIssueNumber, issues])
 
   // Keyboard shortcuts - FIXED: Only depends on isOpen
   useEffect(() => {

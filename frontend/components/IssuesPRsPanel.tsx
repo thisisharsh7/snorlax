@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
@@ -28,6 +29,37 @@ interface PullRequest {
   body: string
 }
 
+interface CategorizedIssue {
+  issue_number: number
+
+  // For grouped data (API returns all categories - nested structure)
+  categories?: Array<{
+    category: string
+    confidence: number
+    reasoning: string
+    related_issues?: number[]
+    related_prs?: number[]
+    related_files?: string[]
+    theme_name?: string
+    theme_description?: string
+  }>
+  primary_category?: string
+  primary_confidence?: number
+
+  // For filtered data (API returns specific category - flat structure)
+  category?: string
+  confidence?: number
+  reasoning?: string
+}
+
+interface CategoryStats {
+  total: number
+  duplicates: number
+  implemented: number
+  fixed_in_pr: number
+  themes: number
+}
+
 interface IssuesPRsPanelProps {
   projectId: string
   repoName: string
@@ -36,23 +68,38 @@ interface IssuesPRsPanelProps {
   onOpenSettings: () => void
   onReindex: () => void
   isBackgroundSyncing?: boolean
+  onOpenTriage: (issueNumber: number) => void
+  onOpenPRTriage: (prNumber: number) => void
 }
 
-export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing }: IssuesPRsPanelProps) {
+export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing, onOpenTriage, onOpenPRTriage }: IssuesPRsPanelProps) {
   const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues')
   const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('all')
   const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'duplicate' | 'implemented' | 'fixed_in_pr' | 'theme_cluster'>('all')
   const [issues, setIssues] = useState<Issue[]>([])
   const [prs, setPrs] = useState<PullRequest[]>([])
+  const [categorizedIssues, setCategorizedIssues] = useState<CategorizedIssue[]>([])
+  const [categoryStats, setCategoryStats] = useState<CategoryStats>({
+    total: 0,
+    duplicates: 0,
+    implemented: 0,
+    fixed_in_pr: 0,
+    themes: 0
+  })
   const [loading, setLoading] = useState(true)
+  const [loadingCategories, setLoadingCategories] = useState(false)
+  const [categorizing, setCategorizing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [importSuccess, setImportSuccess] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [showTokenPrompt, setShowTokenPrompt] = useState(false)
+  const [estimatedCost, setEstimatedCost] = useState<number>(0)
 
-  // Ref for immediate race condition checking
+  // Refs for immediate race condition checking
   const importingRef = useRef(false)
+  const categorizingRef = useRef(false)
 
   // Reset UI state when switching repositories
   useEffect(() => {
@@ -68,6 +115,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
     async function loadData() {
       await checkGithubToken()
+      await loadCategoryStats()
+      await loadCategorizedIssues()
       if (activeTab === 'issues') {
         await loadIssues()
       } else {
@@ -92,6 +141,41 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     }
   }
 
+  async function loadCategoryStats() {
+    try {
+      const res = await fetch(API_ENDPOINTS.categoryStats(projectId))
+      if (!res.ok) return
+      const data = await res.json()
+      setCategoryStats({
+        total: data.categorized_issues || 0,
+        duplicates: data.by_category?.duplicate || 0,
+        implemented: data.by_category?.implemented || 0,
+        fixed_in_pr: data.by_category?.fixed_in_pr || 0,
+        themes: data.by_category?.theme_cluster || 0
+      })
+
+      // Calculate estimated cost
+      const uncategorized = data.uncategorized_issues || 0
+      setEstimatedCost(uncategorized * 0.015)
+    } catch (e) {
+      console.error('Failed to load category stats:', e)
+    }
+  }
+
+  async function loadCategorizedIssues() {
+    try {
+      setLoadingCategories(true)
+      const res = await fetch(API_ENDPOINTS.categorizedIssues(projectId))
+      if (!res.ok) return
+      const data = await res.json()
+      setCategorizedIssues(data.issues || [])
+    } catch (e) {
+      console.error('Failed to load categorized issues:', e)
+    } finally {
+      setLoadingCategories(false)
+    }
+  }
+
   async function loadIssues() {
     setLoading(true)
     setError(null)
@@ -111,7 +195,13 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       }
 
       const data = await res.json()
-      setIssues(data.issues || [])
+
+      // Sort by created_at descending (newest first)
+      const sortedIssues = (data.issues || []).sort((a: Issue, b: Issue) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+
+      setIssues(sortedIssues)
     } catch (e: any) {
       if (e.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load issues:', e)
@@ -140,13 +230,55 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       }
 
       const data = await res.json()
-      setPrs(data.pull_requests || [])
+
+      // Sort by created_at descending (newest first)
+      const sortedPRs = (data.pull_requests || []).sort((a: PullRequest, b: PullRequest) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+
+      setPrs(sortedPRs)
     } catch (e: any) {
       if (e.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load PRs:', e)
       setError(e.message || 'Failed to load pull requests. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleCategorizeAll() {
+    // Prevent multiple simultaneous categorization operations
+    if (categorizingRef.current) {
+      return
+    }
+
+    categorizingRef.current = true
+    setCategorizing(true)
+    try {
+      const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
+        method: 'POST'
+      })
+      if (!res.ok) throw new Error('Failed to start categorization')
+
+      // Poll for updates with exponential backoff
+      let attempts = 0
+      const maxAttempts = 15
+
+      while (attempts < maxAttempts) {
+        const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+
+        await loadCategorizedIssues()
+        await loadCategoryStats()
+
+        attempts++
+      }
+    } catch (e) {
+      console.error('Failed to categorize:', e)
+      alert('Failed to categorize issues. Please try again.')
+    } finally {
+      categorizingRef.current = false
+      setCategorizing(false)
     }
   }
 
@@ -252,113 +384,205 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     return '✓'
   }
 
+  // Filter issues based on category
+  const getFilteredIssues = () => {
+    if (categoryFilter === 'all') return issues
+
+    const categorizedNumbers = categorizedIssues
+      .filter(ci => {
+        // Handle nested structure (when API returns all categories)
+        if (ci.categories) {
+          return ci.categories.some(cat => cat.category === categoryFilter)
+        }
+        // Handle flat structure (when API returns specific category)
+        return ci.category === categoryFilter
+      })
+      .map(ci => ci.issue_number)
+
+    return issues.filter(issue => categorizedNumbers.includes(issue.number))
+  }
+
+  const displayIssues = getFilteredIssues()
+
+  function getCategoryBadge(category: string, confidence: number) {
+    const badges: Record<string, { color: string; icon: string; label: string }> = {
+      duplicate: { color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', icon: '🔴', label: 'Duplicate' },
+      implemented: { color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: '✅', label: 'Implemented' },
+      fixed_in_pr: { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300', icon: '🔧', label: 'Fixed in PR' },
+      theme_cluster: { color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', icon: '📦', label: 'Theme' },
+    }
+
+    const badge = badges[category] || { color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: '⚪', label: category }
+
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
+        <span>{badge.icon}</span>
+        {badge.label}
+        <span className="text-[10px] opacity-75">({Math.round(confidence * 100)}%)</span>
+      </span>
+    )
+  }
+
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Sub-tabs for Issues/PRs - Only show if repository has been synced */}
+      {/* Header: Categorize Button + Issues/PRs Tabs */}
       {lastSyncedAt && (
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
-          <div className="flex gap-4">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Left: Categorize All Button (or spacer) */}
+            <div>
+              {activeTab === 'issues' && (
+                <>
+                  <button
+                    onClick={handleCategorizeAll}
+                    disabled={categorizing}
+                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 font-medium text-sm"
+                  >
+                    {categorizing ? 'Categorizing...' : 'Categorize All Issues'}
+                  </button>
+                  {!categorizing && estimatedCost > 0 && (
+                    <span className="ml-3 text-xs text-gray-500 dark:text-gray-400">
+                      Est. cost: ${estimatedCost.toFixed(3)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Right: Issues/PRs Tabs */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => setActiveTab('issues')}
+                className={`pb-2 px-4 font-medium text-sm transition-colors border-b-2 ${
+                  activeTab === 'issues'
+                    ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Issues ({displayIssues.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('prs')}
+                className={`pb-2 px-4 font-medium text-sm transition-colors border-b-2 ${
+                  activeTab === 'prs'
+                    ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Pull Requests ({prs.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Filter Tabs - Show only after categorization */}
+      {lastSyncedAt && categoryStats.total > 0 && activeTab === 'issues' && (
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex gap-2">
             <button
-              onClick={() => setActiveTab('issues')}
-              className={`pb-2 px-1 font-medium text-sm transition-colors ${
-                activeTab === 'issues'
-                  ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              onClick={() => setCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                categoryFilter === 'all'
+                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
-              Issues ({issues.length})
+              <span className="flex items-center gap-1.5">
+                All
+                {categoryStats.total > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200">
+                    {categoryStats.total}
+                  </span>
+                )}
+              </span>
             </button>
             <button
-              onClick={() => setActiveTab('prs')}
-              className={`pb-2 px-1 font-medium text-sm transition-colors ${
-                activeTab === 'prs'
-                  ? 'border-b-2 border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              onClick={() => setCategoryFilter('duplicate')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                categoryFilter === 'duplicate'
+                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
-              Pull Requests ({prs.length})
+              <span className="flex items-center gap-1.5">
+                Duplicate
+                {categoryStats.duplicates > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-200 dark:bg-red-900/50 text-red-700 dark:text-red-300">
+                    {categoryStats.duplicates}
+                  </span>
+                )}
+              </span>
+            </button>
+            <button
+              onClick={() => setCategoryFilter('implemented')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                categoryFilter === 'implemented'
+                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                Implemented
+                {categoryStats.implemented > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-200 dark:bg-green-900/50 text-green-700 dark:text-green-300">
+                    {categoryStats.implemented}
+                  </span>
+                )}
+              </span>
+            </button>
+            <button
+              onClick={() => setCategoryFilter('fixed_in_pr')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                categoryFilter === 'fixed_in_pr'
+                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                Fixed in PR
+                {categoryStats.fixed_in_pr > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-200 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                    {categoryStats.fixed_in_pr}
+                  </span>
+                )}
+              </span>
+            </button>
+            <button
+              onClick={() => setCategoryFilter('theme_cluster')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                categoryFilter === 'theme_cluster'
+                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                Theme Cluster
+                {categoryStats.themes > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-purple-200 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">
+                    {categoryStats.themes}
+                  </span>
+                )}
+              </span>
             </button>
           </div>
+        </div>
+      )}
 
-          {/* Filters */}
-          <div className="flex gap-2 mt-3">
-          {activeTab === 'issues' ? (
-            <>
-              <button
-                onClick={() => setIssueFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  issueFilter === 'all'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setIssueFilter('open')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  issueFilter === 'open'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Open
-              </button>
-              <button
-                onClick={() => setIssueFilter('closed')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  issueFilter === 'closed'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Closed
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setPrFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  prFilter === 'all'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setPrFilter('open')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  prFilter === 'open'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Open
-              </button>
-              <button
-                onClick={() => setPrFilter('closed')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  prFilter === 'closed'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Closed
-              </button>
-              <button
-                onClick={() => setPrFilter('merged')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  prFilter === 'merged'
-                    ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                Merged
-              </button>
-            </>
-          )}
+
+      {/* Active Category Filter Indicator */}
+      {categoryFilter !== 'all' && activeTab === 'issues' && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 px-6 py-2 border-b border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-blue-700 dark:text-blue-300">
+              Showing {categoryFilter.replace('_', ' ')} issues
+            </span>
+            <button
+              onClick={() => setCategoryFilter('all')}
+              className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
+            >
+              Clear filter
+            </button>
           </div>
         </div>
       )}
@@ -370,7 +594,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
         ) : activeTab === 'issues' ? (
-          issues.length === 0 ? (
+          displayIssues.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-gray-500 dark:text-gray-400">
                 {isBackgroundSyncing ? (
@@ -378,6 +602,19 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-lg font-semibold mb-2">Syncing issues...</p>
                     <p className="text-sm">Please wait while we import issues from GitHub</p>
+                  </>
+                ) : categoryFilter !== 'all' ? (
+                  <>
+                    <p className="text-lg font-semibold mb-2">No issues in this category</p>
+                    <p className="text-sm">
+                      <button
+                        onClick={() => setCategoryFilter('all')}
+                        className="text-blue-600 dark:text-blue-400 underline"
+                      >
+                        Clear filter
+                      </button>
+                      {' '}to see all issues
+                    </p>
                   </>
                 ) : (
                   <>
@@ -389,15 +626,27 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
             </div>
           ) : (
             <div className="space-y-3">
-              {issues.map((issue) => (
-                <a
+              {displayIssues.map((issue) => {
+                // Find category info for this issue
+                const categoryInfo = categorizedIssues.find(ci => ci.issue_number === issue.number)
+
+                return (
+                <div
                   key={issue.number}
-                  href={issue.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 transition-colors"
+                  onClick={() => onOpenTriage(issue.number)}
+                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
                 >
-                  <div className="flex items-start gap-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      window.open(issue.html_url, '_blank')
+                    }}
+                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    title="Open on GitHub"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-start gap-3 pr-10">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStateColor(issue.state)} mt-1`}>
                       {getStateIcon(issue.state)} {issue.state}
                     </span>
@@ -409,6 +658,63 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                         <span>by {issue.author}</span>
                         <span>{formatDate(issue.created_at)}</span>
                       </div>
+                      {/* Category Badge(s) - with confidence threshold */}
+                      {categoryInfo && (() => {
+                        const CONFIDENCE_THRESHOLD = 0.20; // 20% minimum
+
+                        // Helper to filter categories by confidence
+                        const filterByConfidence = (categories: any[]) => {
+                          return categories.filter(cat => cat.confidence > CONFIDENCE_THRESHOLD);
+                        };
+
+                        if (categoryFilter === 'all' && categoryInfo.categories) {
+                          // "All" filter: Show all badges above threshold
+                          const validCategories = filterByConfidence(categoryInfo.categories);
+
+                          if (validCategories.length === 0) return null;
+
+                          return (
+                            <div className="mt-2">
+                              <div className="flex flex-wrap gap-2">
+                                {validCategories.map((cat, idx) => (
+                                  <span key={idx}>
+                                    {getCategoryBadge(cat.category, cat.confidence)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        } else if (categoryFilter !== 'all' && categoryInfo.categories) {
+                          // Specific filter: Show ONLY that category's badge if above threshold
+                          const filteredCat = categoryInfo.categories.find(
+                            cat => cat.category === categoryFilter
+                          );
+
+                          if (!filteredCat || filteredCat.confidence <= CONFIDENCE_THRESHOLD) {
+                            return null; // Don't show badge if confidence too low
+                          }
+
+                          return (
+                            <div className="mt-2">
+                              {getCategoryBadge(filteredCat.category, filteredCat.confidence)}
+                            </div>
+                          );
+                        } else {
+                          // Fallback for flat structure (backward compatibility)
+                          const confidence = categoryInfo.primary_confidence || categoryInfo.confidence || 0;
+
+                          if (confidence <= CONFIDENCE_THRESHOLD) return null;
+
+                          return (
+                            <div className="mt-2">
+                              {getCategoryBadge(
+                                categoryInfo.primary_category || categoryInfo.category || '',
+                                confidence
+                              )}
+                            </div>
+                          );
+                        }
+                      })()}
                       {issue.labels.length > 0 && (
                         <div className="flex gap-2 mt-2 flex-wrap">
                           {issue.labels.map((label) => (
@@ -420,8 +726,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                       )}
                     </div>
                   </div>
-                </a>
-              ))}
+                </div>
+              )
+            })}
             </div>
           )
         ) : (
@@ -445,14 +752,22 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           ) : (
             <div className="space-y-3">
               {prs.map((pr) => (
-                <a
+                <div
                   key={pr.number}
-                  href={pr.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 transition-colors"
+                  onClick={() => onOpenPRTriage(pr.number)}
+                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
                 >
-                  <div className="flex items-start gap-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      window.open(pr.html_url, '_blank')
+                    }}
+                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    title="Open on GitHub"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-start gap-3 pr-10">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStateColor(pr.state, !!pr.merged_at)} mt-1`}>
                       {getStateIcon(pr.state, !!pr.merged_at)} {pr.merged_at ? 'merged' : pr.state}
                     </span>
@@ -476,7 +791,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                       )}
                     </div>
                   </div>
-                </a>
+                </div>
               ))}
             </div>
           )

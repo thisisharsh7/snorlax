@@ -540,42 +540,46 @@ Return ONLY valid JSON, no markdown code blocks."""
                         ORDER BY ic.confidence DESC, ic.issue_number
                     """, (project_id, category))
                 else:
+                    # All tab query - return all categories grouped by issue
                     cur.execute("""
-                        SELECT DISTINCT
-                            ic.issue_number,
+                        SELECT
+                            gi.issue_number,
                             gi.title,
                             gi.state,
-                            ic.category,
-                            ic.confidence,
-                            ic.reasoning,
-                            ic.related_issues,
-                            ic.related_prs,
-                            ic.related_files,
-                            ic.theme_name,
-                            ic.theme_description
-                        FROM issue_categories ic
-                        JOIN github_issues gi
-                            ON ic.project_id = gi.project_id
-                            AND ic.issue_number = gi.issue_number
+                            json_agg(
+                                json_build_object(
+                                    'category', ic.category,
+                                    'confidence', ic.confidence,
+                                    'reasoning', ic.reasoning,
+                                    'related_issues', ic.related_issues,
+                                    'related_prs', ic.related_prs,
+                                    'related_files', ic.related_files,
+                                    'theme_name', ic.theme_name,
+                                    'theme_description', ic.theme_description
+                                ) ORDER BY ic.confidence DESC
+                            ) as categories
+                        FROM github_issues gi
+                        JOIN issue_categories ic
+                            ON gi.project_id = ic.project_id
+                            AND gi.issue_number = ic.issue_number
                         WHERE ic.project_id = %s
-                        ORDER BY ic.issue_number, ic.confidence DESC
+                        GROUP BY gi.issue_number, gi.title, gi.state
+                        ORDER BY gi.issue_number
                     """, (project_id,))
 
                 results = cur.fetchall()
 
+                # Transform to grouped format
                 return [
                     {
                         "issue_number": row[0],
                         "title": row[1],
                         "state": row[2],
-                        "category": row[3],
-                        "confidence": row[4],
-                        "reasoning": row[5],
-                        "related_issues": row[6] or [],
-                        "related_prs": row[7] or [],
-                        "related_files": row[8] or [],
-                        "theme_name": row[9],
-                        "theme_description": row[10]
+                        "categories": row[3],  # Array of all categories
+                        "primary_category": row[3][0]["category"],  # First = highest confidence
+                        "primary_confidence": row[3][0]["confidence"],
+                        "theme_name": row[3][0].get("theme_name"),
+                        "theme_description": row[3][0].get("theme_description")
                     }
                     for row in results
                 ]

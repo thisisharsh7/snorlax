@@ -12,16 +12,34 @@ interface Category {
   related_files: string[]
 }
 
-interface CategorizedIssue {
-  issue_number: number
-  title: string
-  state: string
+interface CategoryDetail {
   category: string
   confidence: number
   reasoning: string
   related_issues: number[]
   related_prs: number[]
   related_files: string[]
+  theme_name?: string
+  theme_description?: string
+}
+
+interface CategorizedIssue {
+  issue_number: number
+  title: string
+  state: string
+
+  // For "All" tab (grouped data)
+  categories?: CategoryDetail[]  // Array of all categories
+  primary_category?: string      // Highest confidence category
+  primary_confidence?: number    // Highest confidence score
+
+  // For category-specific tabs (single category)
+  category?: string
+  confidence?: number
+  reasoning?: string
+  related_issues?: number[]
+  related_prs?: number[]
+  related_files?: string[]
   theme_name?: string
   theme_description?: string
 }
@@ -161,8 +179,14 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
     setGeneratingComment(issue.issue_number)
     setGeneratedComment(null)
     try {
+      // Determine which category to use for comment generation
+      const categoryToUse = issue.category || issue.primary_category
+      if (!categoryToUse) {
+        throw new Error('No category available for comment generation')
+      }
+
       const res = await fetch(
-        API_ENDPOINTS.generateComment(projectId, issue.issue_number, issue.category),
+        API_ENDPOINTS.generateComment(projectId, issue.issue_number, categoryToUse),
         { method: 'POST' }
       )
       if (!res.ok) throw new Error('Failed to generate comment')
@@ -204,6 +228,13 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
     }
 
     const filtered = issues.filter(i => {
+      // For grouped data (All tab format)
+      if (i.categories) {
+        const matches = i.categories.some(cat => cat.category === activeTab)
+        console.log(`[Filter Debug] Issue #${i.issue_number} categories:`, i.categories.map(c => c.category), 'matches:', matches)
+        return matches
+      }
+      // For single category data (category tab format)
       console.log(`[Filter Debug] Issue #${i.issue_number} category:`, i.category, 'matches:', i.category === activeTab)
       return i.category === activeTab
     })
@@ -213,19 +244,29 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   }
 
   function groupByTheme(): ThemeCluster[] {
-    const themeIssues = issues.filter(i => i.category === 'theme_cluster' && i.theme_name)
+    const themeIssues = issues.filter(i => {
+      // For grouped data format
+      if (i.categories) {
+        return i.categories.some(cat => cat.category === 'theme_cluster' && cat.theme_name)
+      }
+      // For single category format
+      return i.category === 'theme_cluster' && i.theme_name
+    })
     const themes: Record<string, ThemeCluster> = {}
 
     themeIssues.forEach(issue => {
-      if (!issue.theme_name) return
-      if (!themes[issue.theme_name]) {
-        themes[issue.theme_name] = {
-          theme_name: issue.theme_name,
-          theme_description: issue.theme_description || '',
+      const themeName = issue.theme_name || issue.categories?.find(c => c.category === 'theme_cluster')?.theme_name
+      const themeDesc = issue.theme_description || issue.categories?.find(c => c.category === 'theme_cluster')?.theme_description
+
+      if (!themeName) return
+      if (!themes[themeName]) {
+        themes[themeName] = {
+          theme_name: themeName,
+          theme_description: themeDesc || '',
           issues: []
         }
       }
-      themes[issue.theme_name].issues.push(issue)
+      themes[themeName].issues.push(issue)
     })
 
     return Object.values(themes)
@@ -368,7 +409,23 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-start gap-3">
-                    {getCategoryBadge(issue.category, issue.confidence)}
+                    {/* Show all badges in "All" tab, single badge in category tabs */}
+                    {activeTab === 'all' && issue.categories ? (
+                      // All tab: show all category badges
+                      <div className="flex flex-wrap gap-2">
+                        {issue.categories.map((cat, idx) => (
+                          <span key={idx}>
+                            {getCategoryBadge(cat.category, cat.confidence)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      // Category-specific tab: show single badge
+                      getCategoryBadge(
+                        issue.category || issue.primary_category!,
+                        issue.confidence || issue.primary_confidence!
+                      )
+                    )}
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white text-lg">
                         #{issue.issue_number} {issue.title}
@@ -391,75 +448,102 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
                 </div>
 
                 {/* Full Transparency Section */}
-                {selectedIssue?.issue_number === issue.issue_number && (
-                  <div className="mt-4 space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4">
-                    {/* Reasoning */}
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">💡 AI Reasoning:</h4>
-                      <p className="text-gray-700 dark:text-gray-300 text-sm">{issue.reasoning}</p>
-                    </div>
+                {selectedIssue?.issue_number === issue.issue_number && (() => {
+                  // Get the primary category data (for display in All tab or single category in specific tabs)
+                  const primaryData = issue.categories
+                    ? issue.categories[0]
+                    : {
+                        reasoning: issue.reasoning!,
+                        related_issues: issue.related_issues!,
+                        related_prs: issue.related_prs!,
+                        related_files: issue.related_files!
+                      }
 
-                    {/* Evidence */}
-                    <div className="grid grid-cols-3 gap-4">
-                      {issue.related_issues.length > 0 && (
+                  return (
+                    <div className="mt-4 space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+                      {/* Show reasoning for all categories in All tab, or just the selected one */}
+                      {issue.categories && activeTab === 'all' ? (
+                        // Show all category reasonings in All tab
+                        <div className="space-y-4">
+                          {issue.categories.map((cat, idx) => (
+                            <div key={idx} className="border-l-4 border-gray-300 dark:border-gray-600 pl-4">
+                              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+                                {getCategoryBadge(cat.category, cat.confidence)} Reasoning:
+                              </h4>
+                              <p className="text-gray-700 dark:text-gray-300 text-sm">{cat.reasoning}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        // Show single category reasoning
                         <div>
-                          <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Issues:</h5>
-                          <div className="space-y-1">
-                            {issue.related_issues.map(num => (
-                              <div key={`issue-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">#{num}</div>
-                            ))}
-                          </div>
+                          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">💡 AI Reasoning:</h4>
+                          <p className="text-gray-700 dark:text-gray-300 text-sm">{primaryData.reasoning}</p>
                         </div>
                       )}
-                      {issue.related_prs.length > 0 && (
-                        <div>
-                          <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related PRs:</h5>
-                          <div className="space-y-1">
-                            {issue.related_prs.map(num => (
-                              <div key={`pr-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">PR #{num}</div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {issue.related_files.length > 0 && (
-                        <div>
-                          <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Files:</h5>
-                          <div className="space-y-1">
-                            {issue.related_files.slice(0, 3).map((file) => (
-                              <div key={`file-${issue.issue_number}-${file}`} className="text-gray-600 dark:text-gray-400 text-xs font-mono truncate">
-                                {file}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
 
-                    {/* Generate Comment Button */}
-                    <div>
-                      <button
-                        onClick={() => handleGenerateComment(issue)}
-                        disabled={generatingComment === issue.issue_number}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-medium disabled:opacity-50"
-                      >
-                        {generatingComment === issue.issue_number ? 'Generating...' : 'Generate Comment'}
-                      </button>
+                      {/* Evidence - use primary category data */}
+                      <div className="grid grid-cols-3 gap-4">
+                        {primaryData.related_issues && primaryData.related_issues.length > 0 && (
+                          <div>
+                            <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Issues:</h5>
+                            <div className="space-y-1">
+                              {primaryData.related_issues.map(num => (
+                                <div key={`issue-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">#{num}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {primaryData.related_prs && primaryData.related_prs.length > 0 && (
+                          <div>
+                            <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related PRs:</h5>
+                            <div className="space-y-1">
+                              {primaryData.related_prs.map(num => (
+                                <div key={`pr-${num}`} className="text-blue-600 dark:text-blue-400 text-sm">PR #{num}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {primaryData.related_files && primaryData.related_files.length > 0 && (
+                          <div>
+                            <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">Related Files:</h5>
+                            <div className="space-y-1">
+                              {primaryData.related_files.slice(0, 3).map((file) => (
+                                <div key={`file-${issue.issue_number}-${file}`} className="text-gray-600 dark:text-gray-400 text-xs font-mono truncate">
+                                  {file}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
 
-                      {generatedComment && generatingComment !== issue.issue_number && (
-                        <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-                          <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-2">📝 Generated Comment:</h5>
-                          <div className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap">{generatedComment}</div>
-                          <button
-                            onClick={() => navigator.clipboard.writeText(generatedComment)}
-                            className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
-                          >
-                            Copy to Clipboard
-                          </button>
-                        </div>
-                      )}
+                      {/* Generate Comment Button */}
+                      <div>
+                        <button
+                          onClick={() => handleGenerateComment(issue)}
+                          disabled={generatingComment === issue.issue_number}
+                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-medium disabled:opacity-50"
+                        >
+                          {generatingComment === issue.issue_number ? 'Generating...' : 'Generate Comment'}
+                        </button>
+
+                        {generatedComment && generatingComment !== issue.issue_number && (
+                          <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+                            <h5 className="font-semibold text-gray-900 dark:text-white text-sm mb-2">📝 Generated Comment:</h5>
+                            <div className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap">{generatedComment}</div>
+                            <button
+                              onClick={() => navigator.clipboard.writeText(generatedComment)}
+                              className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+                            >
+                              Copy to Clipboard
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             ))}
           </div>
