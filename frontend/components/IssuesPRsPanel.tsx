@@ -16,18 +16,19 @@ interface Issue {
   body: string
 }
 
-interface PullRequest {
-  number: number
-  title: string
-  state: string
-  author: string
-  created_at: string
-  updated_at: string
-  merged_at: string | null
-  labels: string[]
-  html_url: string
-  body: string
-}
+// DISABLED: PR functionality removed for first version
+// interface PullRequest {
+//   number: number
+//   title: string
+//   state: string
+//   author: string
+//   created_at: string
+//   updated_at: string
+//   merged_at: string | null
+//   labels: string[]
+//   html_url: string
+//   body: string
+// }
 
 interface CategorizedIssue {
   issue_number: number
@@ -69,16 +70,16 @@ interface IssuesPRsPanelProps {
   onReindex: () => void
   isBackgroundSyncing?: boolean
   onOpenTriage: (issueNumber: number) => void
-  onOpenPRTriage: (prNumber: number) => void
+  // onOpenPRTriage: (prNumber: number) => void // DISABLED: PR functionality removed
 }
 
-export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing, onOpenTriage, onOpenPRTriage }: IssuesPRsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues')
-  const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('all')
-  const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all')
+export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing, onOpenTriage }: IssuesPRsPanelProps) {
+  // const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues') // DISABLED: PR functionality removed
+  const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('open') // Changed default to 'open'
+  // const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all') // DISABLED: PR functionality removed
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'duplicate' | 'implemented' | 'fixed_in_pr' | 'theme_cluster'>('all')
   const [issues, setIssues] = useState<Issue[]>([])
-  const [prs, setPrs] = useState<PullRequest[]>([])
+  // const [prs, setPrs] = useState<PullRequest[]>([]) // DISABLED: PR functionality removed
   const [categorizedIssues, setCategorizedIssues] = useState<CategorizedIssue[]>([])
   const [categoryStats, setCategoryStats] = useState<CategoryStats>({
     total: 0,
@@ -117,11 +118,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       await checkGithubToken()
       await loadCategoryStats()
       await loadCategorizedIssues()
-      if (activeTab === 'issues') {
-        await loadIssues()
-      } else {
-        await loadPRs()
-      }
+      await loadIssues()
+      // PR functionality removed - always load issues only
     }
 
     loadData()
@@ -129,7 +127,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     return () => {
       controller.abort() // Cancel any pending requests on unmount
     }
-  }, [projectId, activeTab, issueFilter, prFilter])
+  }, [projectId, issueFilter])
 
   async function checkGithubToken() {
     try {
@@ -211,76 +209,78 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     }
   }
 
-  async function loadPRs() {
-    setLoading(true)
-    setError(null)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
+  // DISABLED: PR functionality removed for first version
+  // async function loadPRs() {
+  //   setLoading(true)
+  //   setError(null)
+  //   try {
+  //     const controller = new AbortController()
+  //     const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-      const stateParam = prFilter === 'all' ? '' : `?state=${prFilter}`
-      const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`, {
-        signal: controller.signal
-      })
-      clearTimeout(timeoutId)
+  //     const stateParam = prFilter === 'all' ? '' : `?state=${prFilter}`
+  //     const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`, {
+  //       signal: controller.signal
+  //     })
+  //     clearTimeout(timeoutId)
 
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Failed to load pull requests')
-      }
+  //     if (!res.ok) {
+  //       const data = await res.json()
+  //       throw new Error(data.detail || 'Failed to load pull requests')
+  //     }
 
-      const data = await res.json()
+  //     const data = await res.json()
 
-      // Sort by created_at descending (newest first)
-      const sortedPRs = (data.pull_requests || []).sort((a: PullRequest, b: PullRequest) => {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      })
+  //     // Sort by created_at descending (newest first)
+  //     const sortedPRs = (data.pull_requests || []).sort((a: PullRequest, b: PullRequest) => {
+  //       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  //     })
 
-      setPrs(sortedPRs)
-    } catch (e: any) {
-      if (e.name === 'AbortError') return // Ignore aborted requests
-      console.error('Failed to load PRs:', e)
-      setError(e.message || 'Failed to load pull requests. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  //     setPrs(sortedPRs)
+  //   } catch (e: any) {
+  //     if (e.name === 'AbortError') return // Ignore aborted requests
+  //     console.error('Failed to load PRs:', e)
+  //     setError(e.message || 'Failed to load pull requests. Please try again.')
+  //   } finally {
+  //     setLoading(false)
+  //   }
+  // }
 
-  async function handleCategorizeAll() {
-    // Prevent multiple simultaneous categorization operations
-    if (categorizingRef.current) {
-      return
-    }
+  // DISABLED: Categorization functionality removed for first version
+  // async function handleCategorizeAll() {
+  //   // Prevent multiple simultaneous categorization operations
+  //   if (categorizingRef.current) {
+  //     return
+  //   }
 
-    categorizingRef.current = true
-    setCategorizing(true)
-    try {
-      const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
-        method: 'POST'
-      })
-      if (!res.ok) throw new Error('Failed to start categorization')
+  //   categorizingRef.current = true
+  //   setCategorizing(true)
+  //   try {
+  //     const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
+  //       method: 'POST'
+  //     })
+  //     if (!res.ok) throw new Error('Failed to start categorization')
 
-      // Poll for updates with exponential backoff
-      let attempts = 0
-      const maxAttempts = 15
+  //     // Poll for updates with exponential backoff
+  //     let attempts = 0
+  //     const maxAttempts = 15
 
-      while (attempts < maxAttempts) {
-        const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
-        await new Promise(resolve => setTimeout(resolve, delay))
+  //     while (attempts < maxAttempts) {
+  //       const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
+  //       await new Promise(resolve => setTimeout(resolve, delay))
 
-        await loadCategorizedIssues()
-        await loadCategoryStats()
+  //       await loadCategorizedIssues()
+  //       await loadCategoryStats()
 
-        attempts++
-      }
-    } catch (e) {
-      console.error('Failed to categorize:', e)
-      alert('Failed to categorize issues. Please try again.')
-    } finally {
-      categorizingRef.current = false
-      setCategorizing(false)
-    }
-  }
+  //       attempts++
+  //     }
+  //   } catch (e) {
+  //     console.error('Failed to categorize:', e)
+  //     alert('Failed to categorize issues. Please try again.')
+  //   } finally {
+  //     categorizingRef.current = false
+  //     setCategorizing(false)
+  //   }
+  // }
 
   async function handleImport() {
     // Check if GitHub token is configured
@@ -299,48 +299,32 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setError(null)
     setImportSuccess(false)
     try {
-      // Import both issues and PRs
-      const [issuesRes, prsRes] = await Promise.all([
-        fetch(API_ENDPOINTS.importIssues(projectId), {
-          method: 'POST'
-        }),
-        fetch(API_ENDPOINTS.importPRs(projectId), {
-          method: 'POST'
-        })
-      ])
+      // Import only issues (PR functionality removed)
+      const issuesRes = await fetch(API_ENDPOINTS.importIssues(projectId), {
+        method: 'POST'
+      })
 
       if (!issuesRes.ok) {
         const data = await issuesRes.json()
         throw new Error(data.detail || 'Failed to import issues from GitHub')
       }
 
-      if (!prsRes.ok) {
-        const data = await prsRes.json()
-        throw new Error(data.detail || 'Failed to import pull requests from GitHub')
-      }
-
       // Get detailed import statistics
       const issuesData = await issuesRes.json()
-      const prsData = await prsRes.json()
 
       // Check if we hit the limit (might have more data to import)
       const issuesLimitReached = issuesData.imported >= 500
-      const prsLimitReached = prsData.imported >= 500
 
-      if (issuesLimitReached || prsLimitReached) {
+      if (issuesLimitReached) {
         setImportSuccess(true)
-        setError(`Successfully imported ${issuesData.imported} issues and ${prsData.imported} PRs. There may be more data available - click "Sync from GitHub" again to continue importing.`)
+        setError(`Successfully imported ${issuesData.imported} issues. There may be more data available - click "Sync from GitHub" again to continue importing.`)
       } else {
         setImportSuccess(true)
-        console.log(`Import complete: ${issuesData.imported} new issues, ${prsData.imported} new PRs`)
+        console.log(`Import complete: ${issuesData.imported} new issues`)
       }
 
-      // Refresh the current view
-      if (activeTab === 'issues') {
-        await loadIssues()
-      } else {
-        await loadPRs()
-      }
+      // Refresh the issues view
+      await loadIssues()
 
       onImport()
 
@@ -425,59 +409,10 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Header: Categorize Button + Issues/PRs Tabs */}
-      {lastSyncedAt && (
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <div className="flex items-center justify-between">
-            {/* Left: Categorize All Button (or spacer) */}
-            <div>
-              {activeTab === 'issues' && (
-                <>
-                  <button
-                    onClick={handleCategorizeAll}
-                    disabled={categorizing}
-                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 font-medium text-sm"
-                  >
-                    {categorizing ? 'Categorizing...' : 'Categorize All Issues'}
-                  </button>
-                  {!categorizing && estimatedCost > 0 && (
-                    <span className="ml-3 text-xs text-gray-500 dark:text-gray-400">
-                      Est. cost: ${estimatedCost.toFixed(3)}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
+      {/* DISABLED: Header with Categorize Button and Tabs removed for first version */}
 
-            {/* Right: Issues/PRs Tabs */}
-            <div className="flex gap-4">
-              <button
-                onClick={() => setActiveTab('issues')}
-                className={`pb-2 px-4 font-medium text-sm transition-colors border-b-2 ${
-                  activeTab === 'issues'
-                    ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                Issues ({displayIssues.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('prs')}
-                className={`pb-2 px-4 font-medium text-sm transition-colors border-b-2 ${
-                  activeTab === 'prs'
-                    ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                Pull Requests ({prs.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Category Filter Tabs - Show only after categorization */}
-      {lastSyncedAt && categoryStats.total > 0 && activeTab === 'issues' && (
+      {/* DISABLED: Category Filter Tabs - removed for first version */}
+      {false && lastSyncedAt && categoryStats.total > 0 && (
         <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
           <div className="flex gap-2">
             <button
@@ -570,8 +505,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       )}
 
 
-      {/* Active Category Filter Indicator */}
-      {categoryFilter !== 'all' && activeTab === 'issues' && (
+      {/* DISABLED: Active Category Filter Indicator - removed for first version */}
+      {false && categoryFilter !== 'all' && (
         <div className="bg-blue-50 dark:bg-blue-900/20 px-6 py-2 border-b border-blue-200 dark:border-blue-800">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-blue-700 dark:text-blue-300">
@@ -593,7 +528,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
-        ) : activeTab === 'issues' ? (
+        ) : (
           displayIssues.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-gray-500 dark:text-gray-400">
@@ -731,71 +666,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
             })}
             </div>
           )
-        ) : (
-          prs.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-500 dark:text-gray-400">
-                {isBackgroundSyncing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p className="text-lg font-semibold mb-2">Syncing pull requests...</p>
-                    <p className="text-sm">Please wait while we import pull requests from GitHub</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-lg font-semibold mb-2">No pull requests found</p>
-                    <p className="text-sm">Click "Sync Issues/PRs" to import pull requests</p>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {prs.map((pr) => (
-                <div
-                  key={pr.number}
-                  onClick={() => onOpenPRTriage(pr.number)}
-                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      window.open(pr.html_url, '_blank')
-                    }}
-                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
-                    title="Open on GitHub"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                  <div className="flex items-start gap-3 pr-10">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStateColor(pr.state, !!pr.merged_at)} mt-1`}>
-                      {getStateIcon(pr.state, !!pr.merged_at)} {pr.merged_at ? 'merged' : pr.state}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-                        #{pr.number} {pr.title}
-                      </h3>
-                      <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
-                        <span>by {pr.author}</span>
-                        <span>{formatDate(pr.created_at)}</span>
-                        {pr.merged_at && <span>merged {formatDate(pr.merged_at)}</span>}
-                      </div>
-                      {pr.labels.length > 0 && (
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                          {pr.labels.map((label) => (
-                            <span key={`pr-${pr.number}-label-${label}`} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
-                              {label}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
         )}
+        {/* DISABLED: PR display section removed for first version */}
       </div>
     </div>
   )

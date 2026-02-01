@@ -6,7 +6,7 @@ import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
 import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
 import TriageModeModal from '@/components/TriageModeModal'
-import PRTriageModeModal from '@/components/PRTriageModeModal'
+// import PRTriageModeModal from '@/components/PRTriageModeModal' // DISABLED: PR functionality removed
 import IndexModal from '@/components/IndexModal'
 import SettingsModal from '@/components/SettingsModal'
 import { Github, Settings, Sun, Moon, RefreshCw, AlertTriangle } from 'lucide-react'
@@ -31,8 +31,8 @@ export default function Dashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showTriageModal, setShowTriageModal] = useState(false)
   const [selectedIssueForTriage, setSelectedIssueForTriage] = useState<number | null>(null)
-  const [showPRTriageModal, setShowPRTriageModal] = useState(false)
-  const [selectedPRForTriage, setSelectedPRForTriage] = useState<number | null>(null)
+  // const [showPRTriageModal, setShowPRTriageModal] = useState(false) // DISABLED: PR functionality removed
+  // const [selectedPRForTriage, setSelectedPRForTriage] = useState<number | null>(null) // DISABLED: PR functionality removed
   const [repos, setRepos] = useState<Repository[]>([])
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
@@ -327,18 +327,13 @@ export default function Dashboard() {
     setSyncing(true)
 
     try {
-      const [issuesRes, prsRes] = await Promise.all([
-        fetch(API_ENDPOINTS.importIssues(selectedRepo.project_id), {
-          method: 'POST',
-          signal: controller.signal
-        }),
-        fetch(API_ENDPOINTS.importPRs(selectedRepo.project_id), {
-          method: 'POST',
-          signal: controller.signal
-        })
-      ])
+      // UPDATED: Only import issues, PR functionality removed for first version
+      const issuesRes = await fetch(API_ENDPOINTS.importIssues(selectedRepo.project_id), {
+        method: 'POST',
+        signal: controller.signal
+      })
 
-      // Check responses
+      // Check response
       if (!issuesRes.ok) {
         const errorData = await issuesRes.json().catch(() => ({detail: issuesRes.statusText}))
 
@@ -353,26 +348,11 @@ export default function Dashboard() {
         throw new Error('Sync failed')
       }
 
-      if (!prsRes.ok) {
-        const errorData = await prsRes.json().catch(() => ({detail: prsRes.statusText}))
-
-        if (prsRes.status === 429) {
-          const resetTime = errorData.detail?.reset_time
-            ? new Date(errorData.detail.reset_time * 1000).toLocaleTimeString()
-            : 'later'
-          alert(`⏱️ GitHub rate limit exceeded. Please try again at ${resetTime}.\n\n💡 Tip: Add a GitHub token in Settings for higher limits (5000/hour vs 60/hour)`)
-        } else {
-          alert(`❌ PRs sync failed: ${errorData.detail?.message || errorData.detail || prsRes.statusText}`)
-        }
-        throw new Error('Sync failed')
-      }
-
-      // Parse success responses
+      // Parse success response
       const issuesData = await issuesRes.json()
-      const prsData = await prsRes.json()
 
       // Show detailed results
-      alert(`✅ Synced ${issuesData.imported} issues and ${prsData.imported} PRs`)
+      alert(`✅ Synced ${issuesData.imported} issues`)
 
       await loadRepositories()
     } catch (e) {
@@ -485,10 +465,6 @@ export default function Dashboard() {
                 setSelectedIssueForTriage(issueNumber)
                 setShowTriageModal(true)
               }}
-              onOpenPRTriage={(prNumber) => {
-                setSelectedPRForTriage(prNumber)
-                setShowPRTriageModal(true)
-              }}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -561,7 +537,8 @@ export default function Dashboard() {
             }}
             initialIssueNumber={selectedIssueForTriage}
           />
-          <PRTriageModeModal
+          {/* DISABLED: PR functionality removed for first version */}
+          {/* <PRTriageModeModal
             projectId={selectedRepo.project_id}
             isOpen={showPRTriageModal}
             onClose={() => {
@@ -569,7 +546,7 @@ export default function Dashboard() {
               setSelectedPRForTriage(null)
             }}
             initialPRNumber={selectedPRForTriage}
-          />
+          /> */}
         </>
       )}
     </div>

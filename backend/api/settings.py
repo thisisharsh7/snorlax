@@ -152,6 +152,7 @@ async def save_settings(
 
         # Import here to avoid circular dependency
         from services.github.api import GitHubService
+        import anthropic
 
         # Update AI provider
         if settings.ai_provider:
@@ -165,6 +166,17 @@ async def save_settings(
 
         # Process all API keys uniformly
         process_api_key(cur, 'anthropic_api_key', settings.anthropic_api_key, 'ANTHROPIC_API_KEY')
+
+        # Reinitialize Claude client in categorization service when Anthropic key changes
+        anthropic_action = determine_key_action(settings.anthropic_api_key)
+        if anthropic_action in ('update', 'delete'):
+            from api.triage import categorization_service, triage_optimizer
+            # Reinitialize Claude client
+            api_key = os.environ.get('ANTHROPIC_API_KEY')
+            categorization_service.claude_client = anthropic.Anthropic(api_key=api_key) if api_key else None
+            # Update the triage optimizer's client reference
+            triage_optimizer.claude_client = categorization_service.claude_client
+
         process_api_key(cur, 'openai_api_key', settings.openai_api_key, 'OPENAI_API_KEY')
         process_api_key(cur, 'openrouter_api_key', settings.openrouter_api_key, 'OPENROUTER_API_KEY')
 

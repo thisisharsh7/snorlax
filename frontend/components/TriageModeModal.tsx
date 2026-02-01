@@ -17,6 +17,20 @@ interface Issue {
 interface TriageAnalysis {
   issue_number: number
   title: string
+  // New optimized format
+  decision?: 'CLOSE_DUPLICATE' | 'CLOSE_FIXED' | 'CLOSE_EXISTS' | 'NEEDS_INVESTIGATION' |
+             'VALID_FEATURE' | 'NEEDS_INFO' | 'ANSWER_FROM_DOCS' | 'INVALID'
+  primary_message?: string
+  evidence_bullets?: string[]
+  draft_response?: string
+  action_button_text?: string
+  action_button_style?: 'danger' | 'success' | 'primary' | 'warning'
+  related_links?: Array<{
+    text: string
+    url: string
+    source: 'stackoverflow' | 'github' | 'docs' | 'internal'
+  }>
+  // Old format (for backwards compatibility)
   primary_category: string
   confidence: number
   reasoning: string
@@ -36,10 +50,14 @@ interface TriageAnalysis {
     input_tokens: number
     output_tokens: number
     total_tokens: number
+    cached_tokens?: number
     input_cost_usd: number
     output_cost_usd: number
     total_cost_usd: number
   }
+  from_cache?: boolean
+  cost_saved?: number
+  rule_matched?: string
 }
 
 interface TriageModeModalProps {
@@ -66,6 +84,25 @@ function CategoryBadge({ category }: { category: string }) {
   )
 }
 
+// Decision card configuration
+const DECISION_CONFIG: Record<string, { icon: string; color: string; bgColor: string; borderColor: string }> = {
+  CLOSE_DUPLICATE: { icon: '🔴', color: 'text-red-700 dark:text-red-300', bgColor: 'bg-red-50 dark:bg-red-900/20', borderColor: 'border-red-200 dark:border-red-800' },
+  CLOSE_FIXED: { icon: '🟢', color: 'text-green-700 dark:text-green-300', bgColor: 'bg-green-50 dark:bg-green-900/20', borderColor: 'border-green-200 dark:border-green-800' },
+  CLOSE_EXISTS: { icon: '🔵', color: 'text-blue-700 dark:text-blue-300', bgColor: 'bg-blue-50 dark:bg-blue-900/20', borderColor: 'border-blue-200 dark:border-blue-800' },
+  NEEDS_INVESTIGATION: { icon: '⚠️', color: 'text-orange-700 dark:text-orange-300', bgColor: 'bg-orange-50 dark:bg-orange-900/20', borderColor: 'border-orange-200 dark:border-orange-800' },
+  VALID_FEATURE: { icon: '💡', color: 'text-purple-700 dark:text-purple-300', bgColor: 'bg-purple-50 dark:bg-purple-900/20', borderColor: 'border-purple-200 dark:border-purple-800' },
+  NEEDS_INFO: { icon: '❓', color: 'text-yellow-700 dark:text-yellow-300', bgColor: 'bg-yellow-50 dark:bg-yellow-900/20', borderColor: 'border-yellow-200 dark:border-yellow-800' },
+  ANSWER_FROM_DOCS: { icon: '📚', color: 'text-teal-700 dark:text-teal-300', bgColor: 'bg-teal-50 dark:bg-teal-900/20', borderColor: 'border-teal-200 dark:border-teal-800' },
+  INVALID: { icon: '🚫', color: 'text-gray-700 dark:text-gray-300', bgColor: 'bg-gray-50 dark:bg-gray-800', borderColor: 'border-gray-200 dark:border-gray-700' }
+}
+
+const BUTTON_STYLES: Record<string, string> = {
+  danger: 'bg-red-600 hover:bg-red-700 text-white',
+  success: 'bg-green-600 hover:bg-green-700 text-white',
+  primary: 'bg-blue-600 hover:bg-blue-700 text-white',
+  warning: 'bg-orange-600 hover:bg-orange-700 text-white'
+}
+
 export default function TriageModeModal({ projectId, isOpen, onClose, initialIssueNumber }: TriageModeModalProps) {
   const [issues, setIssues] = useState<Issue[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -77,6 +114,13 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
   const [issueBodyExpanded, setIssueBodyExpanded] = useState(false)
   const [postingResponse, setPostingResponse] = useState<number | null>(null)
   const [postedResponse, setPostedResponse] = useState<number | null>(null)
+  const [analysisProgress, setAnalysisProgress] = useState<{
+    similarIssues: boolean
+    codeSearch: boolean
+    internetSearch: boolean
+    aiAnalysis: boolean
+  }>({ similarIssues: false, codeSearch: false, internetSearch: false, aiAnalysis: false })
+  const [showDetails, setShowDetails] = useState(false)
 
   // Refs for keyboard handler (to avoid stale closures)
   const currentIndexRef = useRef(currentIndex)
@@ -492,48 +536,152 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
               {/* RIGHT: Analysis */}
               <div className="w-1/2 overflow-y-auto p-6">
                 {!analysis ? (
-                  <div className="flex flex-col items-center justify-center h-full">
-                    <div className="text-center mb-6">
-                      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                  <div className="flex flex-col items-center justify-center h-full px-8">
+                    <div className="text-center mb-8 max-w-md">
+                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 mb-4">
+                        <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                         Ready to analyze?
                       </h3>
-                      <p className="text-gray-500 text-sm">
-                        Click below to run AI analysis on this issue
+                      <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed mb-4">
+                        AI will analyze this issue and provide:
                       </p>
+                      <div className="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
+                        <ul className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                          <li className="flex items-start gap-2">
+                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
+                            <span><strong>Smart categorization</strong> (bug, feature, critical, etc.)</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
+                            <span><strong>Duplicate detection</strong> across existing issues</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
+                            <span><strong>Related PRs</strong> that might address this</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
+                            <span><strong>Documentation links</strong> from your codebase</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
+                            <span><strong>Suggested responses</strong> ready to post</span>
+                          </li>
+                        </ul>
+                      </div>
                     </div>
                     <button
                       onClick={handleAnalyzeClick}
                       disabled={analyzing}
-                      className="bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="group relative bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3.5 rounded-lg font-semibold text-base shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 disabled:hover:scale-100"
                     >
                       {analyzing ? (
-                        <span className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                          Analyzing...
+                        <span className="flex items-center gap-3">
+                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                          <span>Analyzing with AI...</span>
                         </span>
                       ) : (
-                        '🔍 Analyze with AI'
+                        <span className="flex items-center gap-2">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                          <span>Analyze with AI</span>
+                        </span>
                       )}
                     </button>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-4">
+                      Powered by Claude Sonnet 4.5 • Usually takes 2-5 seconds
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {/* Category & Confidence */}
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Analysis Results</h3>
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <CategoryBadge category={analysis.primary_category} />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {Math.round((analysis.confidence || 0) * 100)}% confident
-                        </span>
-                        {analysis.api_cost && (
-                          <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-mono">
-                            Cost: ${analysis.api_cost.total_cost_usd.toFixed(4)}
-                          </span>
-                        )}
+                    {/* Decision Card (New Format) or Category Badge (Old Format) */}
+                    {analysis.decision ? (
+                      // NEW FORMAT: Show enhanced decision card
+                      <div className={`${DECISION_CONFIG[analysis.decision]?.bgColor} ${DECISION_CONFIG[analysis.decision]?.borderColor} border-2 rounded-lg p-5`}>
+                        <div className="flex items-start gap-4">
+                          <div className="text-4xl">{DECISION_CONFIG[analysis.decision]?.icon}</div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2 flex-wrap">
+                              <h3 className={`text-lg font-bold ${DECISION_CONFIG[analysis.decision]?.color}`}>
+                                {analysis.decision.replace(/_/g, ' ')}
+                              </h3>
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {Math.round((analysis.confidence || 0) * 100)}% confident
+                              </span>
+                              {analysis.api_cost && (
+                                <span className="text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded font-mono">
+                                  ${analysis.api_cost.total_cost_usd.toFixed(4)}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-base font-semibold text-gray-900 dark:text-white mb-3">
+                              {analysis.primary_message}
+                            </p>
+                            {analysis.evidence_bullets && analysis.evidence_bullets.length > 0 && (
+                              <ul className="space-y-1.5">
+                                {analysis.evidence_bullets.map((bullet, i) => (
+                                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                    <span className="text-blue-600 dark:text-blue-400 mt-0.5">•</span>
+                                    <span>{bullet}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
-                    </div>
+                    ) : (
+                      // OLD FORMAT: Show category badge (backwards compatibility)
+                      <div>
+                        <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Analysis Results</h3>
+                        <div className="flex items-center gap-3 mb-2 flex-wrap">
+                          <CategoryBadge category={analysis.primary_category} />
+                          <span className="text-sm text-gray-600 dark:text-gray-400">
+                            {Math.round((analysis.confidence || 0) * 100)}% confident
+                          </span>
+                          {analysis.api_cost && (
+                            <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-mono">
+                              Cost: ${analysis.api_cost.total_cost_usd.toFixed(4)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
+                      </div>
+                    )}
+
+                    {/* Related Links (New Format) */}
+                    {analysis.related_links && analysis.related_links.length > 0 && (
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                        <h4 className="font-semibold text-sm mb-3 text-gray-900 dark:text-white">Related Resources</h4>
+                        <div className="space-y-2">
+                          {analysis.related_links.map((link, i) => {
+                            const sourceIcons = {
+                              stackoverflow: '🔎',
+                              github: '🐙',
+                              docs: '📚',
+                              internal: '🔗'
+                            }
+                            return (
+                              <a
+                                key={i}
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                <span>{sourceIcons[link.source] || '🔗'}</span>
+                                <span>{link.text}</span>
+                              </a>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Related Info (compact) */}
                     {(analysis.duplicate_of || analysis.related_prs?.length > 0) && (
