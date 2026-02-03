@@ -236,6 +236,7 @@ class IssueEmbeddingService:
                         ie.issue_number,
                         gi.title,
                         gi.state,
+                        gi.github_url,
                         1 - (ie.embedding <=> %s) AS similarity
                     FROM issue_embeddings ie
                     JOIN github_issues gi
@@ -256,7 +257,8 @@ class IssueEmbeddingService:
                         "issue_number": row[0],
                         "title": row[1],
                         "state": row[2],
-                        "similarity": round(row[3], 3)
+                        "github_url": row[3],
+                        "similarity": round(row[4], 3)
                     }
                     for row in results
                 ]
@@ -304,6 +306,7 @@ class IssueEmbeddingService:
                         ie.pr_number,
                         gpr.title,
                         gpr.state,
+                        gpr.github_url,
                         1 - (ie.embedding <=> %s) AS similarity
                     FROM issue_embeddings ie
                     JOIN github_pull_requests gpr
@@ -323,7 +326,8 @@ class IssueEmbeddingService:
                         "pr_number": row[0],
                         "title": row[1],
                         "state": row[2],
-                        "similarity": round(row[3], 3)
+                        "github_url": row[3],
+                        "similarity": round(row[4], 3)
                     }
                     for row in results
                 ]

@@ -321,6 +321,20 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
         issue['project_id'] = project_id
 
+        # Get repository URL for building GitHub links
+        repo_url = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT repo_url FROM repositories WHERE project_id = %s", (project_id,))
+            result = cur.fetchone()
+            if result:
+                repo_url = result[0]
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"[{project_id}] Could not fetch repo URL: {e}")
+
         # Step 2: Run similarity searches (free/cheap)
         logger.info(f"[{project_id}] Running similarity searches...")
 
@@ -347,7 +361,7 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
         # Step 3: Try smart rules first (TIER 1 - FREE)
         logger.info(f"[{project_id}] Checking smart rules...")
         rule_result = triage_optimizer.apply_smart_rules(
-            issue, similar_issues, code_matches, doc_links
+            issue, similar_issues, code_matches, doc_links, repo_url
         )
 
         if rule_result:
@@ -355,6 +369,19 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
             # Transform result to include backwards-compatible fields
             rule_result = _transform_analysis_result(rule_result)
+
+            # Store rule-based analysis results to database
+            try:
+                categorization_service._store_triage_results(
+                    project_id=project_id,
+                    issue_number=issue_number,
+                    analysis=rule_result,
+                    doc_links=doc_links
+                )
+                logger.info(f"[{project_id}] Stored rule-based analysis to database for issue #{issue_number}")
+            except Exception as e:
+                logger.error(f"[{project_id}] Failed to store rule-based analysis: {e}")
+                # Continue even if storage fails
 
             # Track cost savings
             _track_cost_savings(
@@ -388,6 +415,19 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
         # Transform result to include backwards-compatible fields
         result = _transform_analysis_result(result)
+
+        # Store analysis results to database
+        try:
+            categorization_service._store_triage_results(
+                project_id=project_id,
+                issue_number=issue_number,
+                analysis=result,
+                doc_links=doc_links
+            )
+            logger.info(f"[{project_id}] Stored analysis results to database for issue #{issue_number}")
+        except Exception as e:
+            logger.error(f"[{project_id}] Failed to store analysis results: {e}")
+            # Continue even if storage fails, so user still gets the result
 
         # Track API costs
         if result.get('api_cost'):

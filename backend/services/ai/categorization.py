@@ -1080,14 +1080,20 @@ Return JSON:
                       AND category IN ('critical', 'bug', 'feature_request', 'question', 'low_priority')
                 """, (project_id, issue_number))
 
-                # Insert triage category
+                # Insert triage category (both old and new format fields)
                 doc_file_paths = [doc['filename'] for doc in doc_links]
+
+                # Convert related_links to JSON for storage
+                import json
+                related_links_json = json.dumps(analysis.get('related_links', [])) if analysis.get('related_links') else None
 
                 cur.execute("""
                     INSERT INTO issue_categories
                     (project_id, issue_number, category, confidence, reasoning,
-                     related_issues, related_prs, priority_score, needs_response, doc_links)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     related_issues, related_prs, priority_score, needs_response, doc_links,
+                     decision, primary_message, evidence_bullets, draft_response,
+                     action_button_text, action_button_style, related_links)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     project_id,
                     issue_number,
@@ -1098,7 +1104,15 @@ Return JSON:
                     analysis.get('related_prs', []),
                     analysis.get('priority_score', 0),
                     analysis.get('needs_response', False),
-                    doc_file_paths
+                    doc_file_paths,
+                    # New optimized format fields
+                    analysis.get('decision'),
+                    analysis.get('primary_message'),
+                    analysis.get('evidence_bullets', []),
+                    analysis.get('draft_response'),
+                    analysis.get('action_button_text'),
+                    analysis.get('action_button_style'),
+                    related_links_json
                 ))
 
                 conn.commit()

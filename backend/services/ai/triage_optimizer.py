@@ -97,7 +97,8 @@ class TriageOptimizer:
         issue: Dict,
         similar_issues: List[Dict],
         code_matches: List[Dict],
-        doc_links: List[Dict]
+        doc_links: List[Dict],
+        repo_url: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Apply rule-based filtering to avoid Claude API calls.
@@ -123,8 +124,8 @@ class TriageOptimizer:
                 "action_button_style": "danger",
                 "related_links": [{
                     "text": f"Original Issue #{duplicate['issue_number']}",
-                    "url": f"#/issues/{duplicate['issue_number']}",
-                    "source": "internal"
+                    "url": duplicate.get('github_url', f"#/issues/{duplicate['issue_number']}"),
+                    "source": "github"
                 }],
                 "confidence": duplicate['similarity'],
                 "cost_saved": 0.02,  # Saved a Claude call
@@ -134,6 +135,14 @@ class TriageOptimizer:
         # RULE 2: Found in Documentation (>80% similarity)
         if doc_links and doc_links[0].get('similarity', 0) > self.DOCS_THRESHOLD:
             doc = doc_links[0]
+            # Build GitHub URL for docs if repo_url is available
+            doc_url = f"#/docs/{doc['filename']}"
+            if repo_url:
+                # Convert to GitHub blob URL for markdown files
+                doc_url = f"{repo_url}/blob/main/{doc['filename']}"
+                if 'start_line' in doc:
+                    doc_url += f"#L{doc['start_line']}"
+
             return {
                 "decision": "ANSWER_FROM_DOCS",
                 "primary_message": "This is already explained in the documentation",
@@ -147,8 +156,8 @@ class TriageOptimizer:
                 "action_button_style": "success",
                 "related_links": [{
                     "text": f"Documentation: {doc['filename']}",
-                    "url": f"#/docs/{doc['filename']}",
-                    "source": "docs"
+                    "url": doc_url,
+                    "source": "github" if repo_url else "docs"
                 }],
                 "confidence": doc['similarity'],
                 "cost_saved": 0.02,
@@ -160,6 +169,13 @@ class TriageOptimizer:
             code = code_matches[0]
             # Check if it's a feature request asking for something that exists
             if self._is_feature_request(issue):
+                # Build GitHub URL for code if repo_url is available
+                code_url = f"#/code/{code['filename']}#L{code['start_line']}"
+                if repo_url:
+                    # Convert repo_url to GitHub blob URL
+                    # e.g., https://github.com/owner/repo -> https://github.com/owner/repo/blob/main/file.py#L123
+                    code_url = f"{repo_url}/blob/main/{code['filename']}#L{code['start_line']}"
+
                 return {
                     "decision": "CLOSE_EXISTS",
                     "primary_message": "This feature already exists in the codebase",
@@ -173,8 +189,8 @@ class TriageOptimizer:
                     "action_button_style": "primary",
                     "related_links": [{
                         "text": f"Code: {code['filename']}:{code['start_line']}",
-                        "url": f"#/code/{code['filename']}#L{code['start_line']}",
-                        "source": "internal"
+                        "url": code_url,
+                        "source": "github" if repo_url else "internal"
                     }],
                     "confidence": code['similarity'],
                     "cost_saved": 0.02,
@@ -496,15 +512,29 @@ Be decisive. Pick ONE action. Be helpful and friendly."""
         stackoverflow = context.get('stackoverflow', [])[:3]
         github_issues = context.get('github_issues', [])[:3]
 
+        # Format similar issues with URLs
+        similar_text = ""
+        if similar:
+            for i, s in enumerate(similar, 1):
+                similar_text += f"\n  {i}. #{s['issue_number']}: {s['title']} ({int(s['similarity']*100)}% match, {s['state']}) - {s.get('github_url', 'N/A')}"
+
+        # Format similar PRs with URLs
+        prs_text = ""
+        if prs:
+            for i, p in enumerate(prs, 1):
+                prs_text += f"\n  {i}. PR #{p['pr_number']}: {p['title']} ({int(p['similarity']*100)}% match, {p['state']}) - {p.get('github_url', 'N/A')}"
+
         return f"""Issue #{issue['issue_number']}: "{issue['title']}"
 
 {issue.get('body', '')[:500]}
 
 Evidence:
-- Similar issues: {len(similar)} found (top: {similar[0]['title'] if similar else 'none'})
-- Related PRs: {len(prs)} found
+- Similar issues: {len(similar)} found{similar_text}
+- Related PRs: {len(prs)} found{prs_text}
 - Stack Overflow: {len(stackoverflow)} results
 - GitHub: {len(github_issues)} similar issues in other repos
+
+When generating related_links, use the GitHub URLs provided above. Format: {{"text": "Issue #123", "url": "https://github.com/...", "source": "github"}}
 
 Decide what to do."""
 
