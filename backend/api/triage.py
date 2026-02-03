@@ -307,6 +307,134 @@ async def get_uncategorized_issues(project_id: str):
         )
 
 
+@router.get("/issues-with-triage/{project_id}")
+async def get_issues_with_triage(project_id: str, state: str = "open"):
+    """
+    Get all issues with their triage responses in a single call.
+
+    Returns each issue with its triage response (if exists) or null (if not triaged).
+    This is a cleaner approach than separate API calls.
+
+    Args:
+        project_id: Project identifier
+        state: Filter by state ('open', 'closed', or 'all'). Default: 'open'
+
+    Returns:
+        List of {issue: {...}, triage: {...} or null}
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Build state filter
+        state_filter = ""
+        if state == "open":
+            state_filter = "AND gi.state = 'open'"
+        elif state == "closed":
+            state_filter = "AND gi.state = 'closed'"
+        # else: all states
+
+        # LEFT JOIN to get issues with their triage responses
+        cur.execute(f"""
+            SELECT
+                -- Issue fields
+                gi.issue_number,
+                gi.title,
+                gi.body,
+                gi.state,
+                gi.created_at,
+                gi.github_url,
+                -- Triage fields (will be NULL if not triaged)
+                ic.category,
+                ic.confidence,
+                ic.reasoning,
+                ic.decision,
+                ic.primary_message,
+                ic.evidence_bullets,
+                ic.draft_response,
+                ic.action_button_text,
+                ic.action_button_style,
+                ic.related_links,
+                ic.related_prs,
+                ic.priority_score
+            FROM github_issues gi
+            LEFT JOIN issue_categories ic
+                ON gi.project_id = ic.project_id
+                AND gi.issue_number = ic.issue_number
+            WHERE gi.project_id = %s
+              {state_filter}
+            ORDER BY gi.issue_number DESC
+        """, (project_id,))
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        # Transform to {issue, triage} structure
+        import json
+        results = []
+        for row in rows:
+            issue = {
+                "issue_number": row[0],
+                "title": row[1],
+                "body": row[2],
+                "state": row[3],
+                "created_at": str(row[4]),
+                "github_url": row[5]
+            }
+
+            # Check if this issue has triage data
+            has_triage = row[6] is not None or row[9] is not None  # category or decision exists
+
+            if has_triage:
+                related_links = json.loads(row[14]) if row[14] else []
+
+                triage = {
+                    "primary_category": row[6],
+                    "confidence": row[7],
+                    "reasoning": row[8],
+                    "decision": row[9],
+                    "primary_message": row[10],
+                    "evidence_bullets": row[11] or [],
+                    "draft_response": row[12],
+                    "action_button_text": row[13],
+                    "action_button_style": row[14],
+                    "related_links": related_links,
+                    "related_prs": row[16] or [],
+                    "priority_score": row[17]
+                }
+
+                # Transform draft_response into suggested_responses for frontend
+                if triage.get('draft_response'):
+                    triage['suggested_responses'] = [{
+                        'type': triage.get('action_button_style', 'primary'),
+                        'title': triage.get('action_button_text', 'Post Comment'),
+                        'body': triage['draft_response'],
+                        'actions': [triage.get('action_button_text', 'Post Comment')]
+                    }]
+            else:
+                triage = None
+
+            results.append({
+                "issue": issue,
+                "triage": triage
+            })
+
+        return {
+            "issues": results,
+            "count": len(results),
+            "triaged_count": sum(1 for r in results if r["triage"] is not None),
+            "untriaged_count": sum(1 for r in results if r["triage"] is None)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get issues with triage for {project_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get issues with triage: {str(e)}"
+        )
+
+
 @router.post("/analyze/{project_id}/{issue_number}")
 @limiter.limit("30/minute")  # Limit AI API calls to 30 per minute per IP
 async def analyze_issue_for_triage(request: Request, project_id: str, issue_number: int):
@@ -437,15 +565,23 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
         # Store analysis results to database
         try:
+            print(f"🔍 DEBUG: About to store analysis for issue #{issue_number}")
+            print(f"🔍 DEBUG: Analysis has decision: {result.get('decision')}")
+            print(f"🔍 DEBUG: Analysis has primary_category: {result.get('primary_category')}")
+
             categorization_service._store_triage_results(
                 project_id=project_id,
                 issue_number=issue_number,
                 analysis=result,
                 doc_links=doc_links
             )
-            logger.info(f"[{project_id}] Stored analysis results to database for issue #{issue_number}")
+            logger.info(f"[{project_id}] ✅ Stored analysis results to database for issue #{issue_number}")
+            print(f"✅ SUCCESS: Stored analysis for issue #{issue_number}")
         except Exception as e:
-            logger.error(f"[{project_id}] Failed to store analysis results: {e}")
+            logger.error(f"[{project_id}] ❌ Failed to store analysis results: {e}")
+            print(f"❌ ERROR storing analysis: {e}")
+            import traceback
+            traceback.print_exc()
             # Continue even if storage fails, so user still gets the result
 
         # Track API costs
@@ -762,7 +898,10 @@ async def get_triage_analysis(project_id: str, issue_number: int):
                 AND ic.issue_number = gi.issue_number
             WHERE ic.project_id = %s
               AND ic.issue_number = %s
-              AND ic.category IN ('critical', 'bug', 'feature_request', 'question', 'low_priority')
+              AND (
+                ic.category IN ('critical', 'bug', 'feature_request', 'question', 'low_priority')
+                OR ic.decision IS NOT NULL
+              )
         """, (project_id, issue_number))
 
         result = cur.fetchone()
@@ -779,7 +918,7 @@ async def get_triage_analysis(project_id: str, issue_number: int):
         import json
         related_links = json.loads(result[16]) if result[16] else []
 
-        return {
+        analysis_data = {
             "issue_number": issue_number,
             "title": result[8],
             "body": result[9],
@@ -801,6 +940,20 @@ async def get_triage_analysis(project_id: str, issue_number: int):
             "action_button_style": result[15],
             "related_links": related_links
         }
+
+        # Transform to include suggested_responses array for frontend compatibility
+        if analysis_data.get('draft_response'):
+            action_text = analysis_data.get('action_button_text', 'Post Comment')
+            response_type = analysis_data.get('action_button_style', 'primary')
+
+            analysis_data['suggested_responses'] = [{
+                'type': response_type,
+                'title': action_text,
+                'body': analysis_data['draft_response'],
+                'actions': [action_text]
+            }]
+
+        return analysis_data
 
     except HTTPException:
         raise
@@ -838,7 +991,7 @@ async def search_issues_semantic(
     try:
         logger.info(f"[{project_id}] Semantic search: '{body.query}' (category: {body.category_filter})")
 
-        # Perform semantic search using embeddings service
+        # Try semantic search first using embeddings
         results = categorization_service.embedding_service.search_by_text(
             project_id=project_id,
             query_text=body.query,
@@ -847,12 +1000,26 @@ async def search_issues_semantic(
             category_filter=body.category_filter
         )
 
-        logger.info(f"[{project_id}] Found {len(results)} results for query '{body.query}'")
+        search_type = "semantic"
+
+        # If no semantic results, fallback to simple text search
+        if len(results) == 0:
+            logger.info(f"[{project_id}] No semantic results, falling back to text search")
+            results = categorization_service.embedding_service.search_by_text_simple(
+                project_id=project_id,
+                query_text=body.query,
+                limit=body.limit,
+                category_filter=body.category_filter
+            )
+            search_type = "text"
+
+        logger.info(f"[{project_id}] Found {len(results)} results ({search_type}) for query '{body.query}'")
 
         return {
             "query": body.query,
             "results": results,
             "count": len(results),
+            "search_type": search_type,
             "min_similarity": body.min_similarity,
             "category_filter": body.category_filter
         }

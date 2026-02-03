@@ -16,6 +16,15 @@ interface Issue {
   body: string
 }
 
+interface SearchResult {
+  issue_number: number
+  title: string
+  body: string
+  state: string
+  github_url: string
+  similarity: number | null
+}
+
 // DISABLED: PR functionality removed for first version
 // interface PullRequest {
 //   number: number
@@ -73,6 +82,23 @@ interface IssuesPRsPanelProps {
   // onOpenPRTriage: (prNumber: number) => void // DISABLED: PR functionality removed
 }
 
+// Custom hook for debouncing values
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
+
 export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing, onOpenTriage }: IssuesPRsPanelProps) {
   // const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues') // DISABLED: PR functionality removed
   const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('open') // Changed default to 'open'
@@ -98,6 +124,16 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   const [showTokenPrompt, setShowTokenPrompt] = useState(false)
   const [estimatedCost, setEstimatedCost] = useState<number>(0)
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [searchType, setSearchType] = useState<'semantic' | 'text' | null>(null)
+
+  // Debounce search query
+  const debouncedSearchQuery = useDebounce(searchQuery, 500)
+
   // Refs for immediate race condition checking
   const importingRef = useRef(false)
   const categorizingRef = useRef(false)
@@ -108,8 +144,22 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     setImportSuccess(false)
     setShowTokenPrompt(false)
     setImporting(false)
+    setSearchQuery('')
+    setSearchResults(null)
+    setSearchError(null)
     // Note: loading, issues, prs, activeTab, filters are handled by the data loading effect
   }, [projectId])
+
+  // Execute search when debounced query changes
+  useEffect(() => {
+    if (debouncedSearchQuery.trim().length >= 3) {
+      performSearch(debouncedSearchQuery)
+    } else if (debouncedSearchQuery.trim().length === 0) {
+      // Clear search when query is empty
+      setSearchResults(null)
+      setSearchError(null)
+    }
+  }, [debouncedSearchQuery, projectId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -281,6 +331,51 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   //     setCategorizing(false)
   //   }
   // }
+
+  async function performSearch(query: string) {
+    try {
+      setIsSearching(true)
+      setSearchError(null)
+
+      const res = await fetch(API_ENDPOINTS.triageSearchSemantic(projectId), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          limit: 20,
+          min_similarity: 0.3,
+          category_filter: null,
+        }),
+      })
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a moment and try again.')
+        }
+        throw new Error('Search failed')
+      }
+
+      const data = await res.json()
+      setSearchResults(data.results)
+      setSearchType(data.search_type || 'semantic')
+    } catch (err: any) {
+      console.error('Search failed:', err)
+      setSearchError(err.message)
+      setSearchResults([])
+      setSearchType(null)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  function handleClearSearch() {
+    setSearchQuery('')
+    setSearchResults(null)
+    setSearchError(null)
+    setSearchType(null)
+  }
 
   async function handleImport() {
     // Check if GitHub token is configured
@@ -522,9 +617,139 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
         </div>
       )}
 
+      {/* Semantic Search Bar */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search issues semantically (e.g., 'authentication bugs', 'memory leaks')..."
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {searchQuery && (
+              <button
+                onClick={handleClearSearch}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isSearching && (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+            )}
+            <button
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+              title="Search uses AI embeddings to find semantically similar issues, even if they use different words"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            Type at least 3 characters to search...
+          </p>
+        )}
+      </div>
+
+      {/* Search Error */}
+      {searchError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-300">Search error</h3>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-1">{searchError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
+        {/* Show search results when search is active */}
+        {searchResults !== null && searchQuery.trim().length >= 3 ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Found {searchResults.length} results for "{searchQuery}"
+                </span>
+                {searchType && (
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                    searchType === 'semantic'
+                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                  }`}>
+                    {searchType === 'semantic' ? '🔮 Semantic Search' : '📝 Text Match'}
+                  </span>
+                )}
+              </div>
+            </div>
+            {searchResults.length === 0 ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center text-gray-500 dark:text-gray-400">
+                  <p className="text-lg font-semibold mb-2">No matching issues found</p>
+                  <p className="text-sm">Try different keywords or lower the similarity threshold</p>
+                </div>
+              </div>
+            ) : (
+              searchResults.map((result) => (
+                <div
+                  key={result.issue_number}
+                  onClick={() => onOpenTriage(result.issue_number)}
+                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      window.open(result.github_url, '_blank')
+                    }}
+                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    title="Open on GitHub"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-start gap-3 pr-10">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                          #{result.issue_number} {result.title}
+                        </h3>
+                        {result.similarity !== null && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                            {Math.round(result.similarity * 100)}% match
+                          </span>
+                        )}
+                      </div>
+                      {result.body && (
+                        <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mt-2">
+                          {result.body.substring(0, 200)}
+                          {result.body.length > 200 ? '...' : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>

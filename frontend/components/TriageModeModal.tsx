@@ -160,31 +160,85 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
     analysisRef.current = analysis
   }, [analysis])
 
-  // Load uncategorized issues
+  // Load uncategorized issues OR specific issue if initialIssueNumber provided
   useEffect(() => {
     if (!isOpen) return
 
     const controller = new AbortController()
 
-    loadUncategorizedIssues()
-    setAnalyzedIssues(new Map()) // Clear cache on open
+    async function loadIssues() {
+      setAnalyzedIssues(new Map()) // Clear cache on open
+
+      // If specific issue requested, try to load it first
+      if (initialIssueNumber) {
+        const hasAnalysis = await loadSavedAnalysis(initialIssueNumber)
+
+        if (hasAnalysis) {
+          // Issue is categorized and we have its analysis
+          // The analysis contains the issue details (title, body from the saved data)
+          // Create a minimal issue object from the analysis
+          const issueFromAnalysis = {
+            issue_number: initialIssueNumber,
+            title: analysis?.title || `Issue #${initialIssueNumber}`,
+            body: analysis?.body || '',
+            state: 'open',
+            created_at: new Date().toISOString()
+          }
+
+          console.log('✅ Loaded categorized issue:', initialIssueNumber, 'with saved analysis')
+
+          // Show only this issue with its analysis
+          setIssues([issueFromAnalysis])
+          setCurrentIndex(0)
+          return // Don't load uncategorized list
+        }
+      }
+
+      // Load uncategorized issues (default behavior)
+      await loadIssuesWithTriage()
+    }
+
+    loadIssues()
 
     return () => {
-      controller.abort() // Cancel any pending requests on unmount
+      controller.abort()
     }
-  }, [isOpen, projectId])
+  }, [isOpen, projectId, initialIssueNumber])
 
-  // Set current index to initialIssueNumber if provided
+  // Set current index to initialIssueNumber if it's in the uncategorized list
   useEffect(() => {
-    if (isOpen && initialIssueNumber && issues.length > 0) {
-      const index = issues.findIndex(
-        issue => issue.issue_number === initialIssueNumber
-      )
-      if (index !== -1) {
-        setCurrentIndex(index)
-      }
+    if (!isOpen || !initialIssueNumber || issues.length === 0) return
+
+    const index = issues.findIndex(
+      issue => issue.issue_number === initialIssueNumber
+    )
+
+    if (index !== -1) {
+      setCurrentIndex(index)
+    } else if (issues.length > 0) {
+      // Not found, default to first issue
+      setCurrentIndex(0)
     }
   }, [isOpen, initialIssueNumber, issues])
+
+  // Load saved analysis when currentIndex changes
+  useEffect(() => {
+    if (!isOpen || !issues[currentIndex]) return
+
+    const issueNumber = issues[currentIndex].issue_number
+
+    // Clear current analysis
+    setAnalysis(null)
+
+    // Check if already in cache
+    if (analyzedIssues.has(issueNumber)) {
+      setAnalysis(analyzedIssues.get(issueNumber)!)
+      return
+    }
+
+    // Try to load saved analysis from database
+    loadSavedAnalysis(issueNumber)
+  }, [isOpen, currentIndex, issues])
 
   // Keyboard shortcuts - FIXED: Only depends on isOpen
   useEffect(() => {
@@ -208,34 +262,18 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
         case 'ArrowDown':
           e.preventDefault()
           if (index < issuesList.length - 1) {
-            const nextIndex = index + 1
-            setCurrentIndex(nextIndex)
-            setAnalysis(null)
+            setCurrentIndex(index + 1)
             setIssueBodyExpanded(false)
-
-            // Check if next issue already analyzed
-            const nextIssueNumber = issuesList[nextIndex].issue_number
-            const cached = analyzedIssues.get(nextIssueNumber)
-            if (cached) {
-              setAnalysis(cached)
-            }
+            // Analysis will be loaded by useEffect
           }
           break
         case 'k':
         case 'ArrowUp':
           e.preventDefault()
           if (index > 0) {
-            const prevIndex = index - 1
-            setCurrentIndex(prevIndex)
-            setAnalysis(null)
+            setCurrentIndex(index - 1)
             setIssueBodyExpanded(false)
-
-            // Check if previous issue already analyzed
-            const prevIssueNumber = issuesList[prevIndex].issue_number
-            const cached = analyzedIssues.get(prevIssueNumber)
-            if (cached) {
-              setAnalysis(cached)
-            }
+            // Analysis will be loaded by useEffect
           }
           break
         case '1':
@@ -263,14 +301,15 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [isOpen, analyzedIssues, onClose])
 
-  async function loadUncategorizedIssues() {
+  async function loadIssuesWithTriage() {
     try {
       setLoading(true)
 
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-      const res = await fetch(API_ENDPOINTS.triageUncategorized(projectId), {
+      // Use new endpoint that returns issues with their triage responses
+      const res = await fetch(API_ENDPOINTS.triageIssuesWithTriage(projectId, 'open'), {
         signal: controller.signal
       })
       clearTimeout(timeoutId)
@@ -280,16 +319,56 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
       }
 
       const data = await res.json()
-      setIssues(data)
+
+      // data.issues is array of {issue: {...}, triage: {...} or null}
+      // Transform to match current structure and pre-load triage responses
+      const issuesArray = data.issues.map((item: any) => item.issue)
+      setIssues(issuesArray)
+
+      // Pre-populate analyzedIssues cache with existing triage responses
+      const triageCache = new Map()
+      data.issues.forEach((item: any) => {
+        if (item.triage) {
+          triageCache.set(item.issue.issue_number, item.triage)
+        }
+      })
+      setAnalyzedIssues(triageCache)
+
       setCurrentIndex(0)
-      setAnalysis(null)
+
+      // Load triage for first issue if it exists
+      const firstIssue = data.issues[0]
+      if (firstIssue && firstIssue.triage) {
+        setAnalysis(firstIssue.triage)
+      } else {
+        setAnalysis(null)
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') return // Ignore aborted requests
-      console.error('Failed to load uncategorized issues:', err)
+      console.error('Failed to load issues:', err)
       alert(`Failed to load issues: ${err.message || 'Unknown error'}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Load saved analysis from database
+  async function loadSavedAnalysis(issueNumber: number) {
+    try {
+      const res = await fetch(API_ENDPOINTS.triageIssue(projectId, issueNumber))
+
+      if (res.ok) {
+        const data = await res.json()
+        // Cache and set the saved analysis
+        setAnalyzedIssues(prev => new Map(prev).set(issueNumber, data))
+        setAnalysis(data)
+        return true
+      }
+    } catch (err) {
+      // No saved analysis found, that's okay
+      console.debug('No saved analysis found for issue', issueNumber)
+    }
+    return false
   }
 
   async function handleAnalyzeClick() {
@@ -330,31 +409,17 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
   function nextIssue() {
     if (currentIndex < issues.length - 1) {
-      const nextIndex = currentIndex + 1
-      setCurrentIndex(nextIndex)
-      setAnalysis(null)
+      setCurrentIndex(currentIndex + 1)
       setIssueBodyExpanded(false)
-
-      // Check if already analyzed
-      const nextIssueNumber = issues[nextIndex].issue_number
-      if (analyzedIssues.has(nextIssueNumber)) {
-        setAnalysis(analyzedIssues.get(nextIssueNumber)!)
-      }
+      // Analysis will be loaded by useEffect
     }
   }
 
   function previousIssue() {
     if (currentIndex > 0) {
-      const prevIndex = currentIndex - 1
-      setCurrentIndex(prevIndex)
-      setAnalysis(null)
+      setCurrentIndex(currentIndex - 1)
       setIssueBodyExpanded(false)
-
-      // Check if already analyzed
-      const prevIssueNumber = issues[prevIndex].issue_number
-      if (analyzedIssues.has(prevIssueNumber)) {
-        setAnalysis(analyzedIssues.get(prevIssueNumber)!)
-      }
+      // Analysis will be loaded by useEffect
     }
   }
 
@@ -599,33 +664,29 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                         </svg>
                       </div>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                        Ready to analyze?
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3">
+                        Turn this issue into a clear next step
                       </h3>
                       <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed mb-4">
-                        AI will analyze this issue and provide:
+                        Get a clear recommendation and a response you can post.
                       </p>
                       <div className="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
-                        <ul className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                        <ul className="space-y-2.5 text-sm text-gray-700 dark:text-gray-300">
                           <li className="flex items-start gap-2">
-                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
-                            <span><strong>Smart categorization</strong> (bug, feature, critical, etc.)</span>
+                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <span>Drafts a response you can post as-is</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
-                            <span><strong>Duplicate detection</strong> across existing issues</span>
+                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <span>Flags if this issue already exists</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
-                            <span><strong>Related PRs</strong> that might address this</span>
+                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <span>Explains whether action is required</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
-                            <span><strong>Documentation links</strong> from your codebase</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="text-blue-600 dark:text-blue-400 mt-0.5">✓</span>
-                            <span><strong>Suggested responses</strong> ready to post</span>
+                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <span>Links relevant code, docs, or PRs</span>
                           </li>
                         </ul>
                       </div>
@@ -633,24 +694,24 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                     <button
                       onClick={handleAnalyzeClick}
                       disabled={analyzing}
-                      className="group relative bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3.5 rounded-lg font-semibold text-base shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 disabled:hover:scale-100"
+                      className="bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 text-white px-8 py-4 rounded-lg font-semibold text-base disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {analyzing ? (
                         <span className="flex items-center gap-3">
                           <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                          <span>Analyzing with AI...</span>
+                          <span>Generating response...</span>
                         </span>
                       ) : (
                         <span className="flex items-center gap-2">
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                           </svg>
-                          <span>Analyze with AI</span>
+                          <span>Generate recommended response</span>
                         </span>
                       )}
                     </button>
-                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-4">
-                      Powered by Claude Sonnet 4.5 • Usually takes 2-5 seconds
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
+                      Based on similar issues from this repository • Usually takes 2–5 seconds
                     </p>
                   </div>
                 ) : (

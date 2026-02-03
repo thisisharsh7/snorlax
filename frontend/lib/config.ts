@@ -46,10 +46,12 @@ export const API_ENDPOINTS = {
   // Triage
   triageDashboard: (projectId: string) => apiUrl(`/api/triage/dashboard/${projectId}`),
   triageUncategorized: (projectId: string) => apiUrl(`/api/triage/issues/${projectId}/uncategorized`),
+  triageIssuesWithTriage: (projectId: string, state?: string) => apiUrl(`/api/triage/issues-with-triage/${projectId}${state ? `?state=${state}` : ''}`),
   triageAnalyze: (projectId: string, issueNumber: number) => apiUrl(`/api/triage/analyze/${projectId}/${issueNumber}`),
   triageBatch: (projectId: string) => apiUrl(`/api/triage/batch-triage/${projectId}`),
   triageBatchStatus: (projectId: string) => apiUrl(`/api/triage/batch-status/${projectId}`),
   triageIssue: (projectId: string, issueNumber: number) => apiUrl(`/api/triage/issue/${projectId}/${issueNumber}`),
+  triageSearchSemantic: (projectId: string) => apiUrl(`/api/triage/search-semantic/${projectId}`),
 
   // Webhooks
   webhookEndpoint: () => apiUrl('/api/webhooks/github'),

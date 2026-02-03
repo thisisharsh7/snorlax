@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
@@ -8,6 +8,15 @@ interface Issue {
   title: string
   confidence: number
   priority_score: number
+}
+
+interface SearchResult {
+  issue_number: number
+  title: string
+  body: string
+  state: string
+  github_url: string
+  similarity: number
 }
 
 interface DashboardData {
@@ -25,6 +34,23 @@ interface DashboardData {
 interface TriageDashboardProps {
   projectId: string
   onEnterTriageMode: () => void
+}
+
+// Custom hook for debouncing values
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
 }
 
 interface CategorySectionProps {
@@ -123,9 +149,29 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+
+  // Debounce search query
+  const debouncedSearchQuery = useDebounce(searchQuery, 500)
+
   useEffect(() => {
     loadDashboardData()
   }, [projectId])
+
+  // Execute search when debounced query changes
+  useEffect(() => {
+    if (debouncedSearchQuery.trim().length >= 3) {
+      performSearch(debouncedSearchQuery)
+    } else if (debouncedSearchQuery.trim().length === 0) {
+      // Clear search when query is empty
+      setSearchResults(null)
+      setSearchError(null)
+    }
+  }, [debouncedSearchQuery, projectId])
 
   async function loadDashboardData() {
     try {
@@ -146,6 +192,48 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
     } finally {
       setLoading(false)
     }
+  }
+
+  async function performSearch(query: string) {
+    try {
+      setIsSearching(true)
+      setSearchError(null)
+
+      const res = await fetch(API_ENDPOINTS.triageSearchSemantic(projectId), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          limit: 20,
+          min_similarity: 0.3,
+          category_filter: null,
+        }),
+      })
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a moment and try again.')
+        }
+        throw new Error('Search failed')
+      }
+
+      const data = await res.json()
+      setSearchResults(data.results)
+    } catch (err: any) {
+      console.error('Search failed:', err)
+      setSearchError(err.message)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  function handleClearSearch() {
+    setSearchQuery('')
+    setSearchResults(null)
+    setSearchError(null)
   }
 
   if (loading) {
@@ -192,6 +280,8 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
     dashboardData.categories.questions.length +
     dashboardData.categories.low_priority.length
 
+  const isSearchActive = searchResults !== null || searchQuery.trim().length >= 3
+
   return (
     <div className="space-y-4">
       {/* Dashboard Header */}
@@ -225,69 +315,187 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
         </div>
       </div>
 
-      {/* No issues message */}
-      {totalIssues === 0 && dashboardData.needs_triage_count === 0 ? (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="text-6xl mb-4">🎉</div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            No issues to triage!
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            All issues have been processed or there are no open issues.
+      {/* Semantic Search Bar */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search issues semantically (e.g., 'authentication bugs', 'memory leaks')..."
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {searchQuery && (
+              <button
+                onClick={handleClearSearch}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isSearching && (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+            )}
+            <button
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+              title="Search uses AI embeddings to find semantically similar issues, even if they use different words"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            Type at least 3 characters to search...
           </p>
+        )}
+      </div>
+
+      {/* Search Error */}
+      {searchError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-300">Search error</h3>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-1">{searchError}</p>
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {/* Critical - Always expanded */}
-          <CategorySection
-            icon="🔥"
-            title="Critical"
-            count={dashboardData.categories.critical.length}
-            issues={dashboardData.categories.critical}
-            collapsible={false}
-            defaultExpanded={true}
-          />
+      )}
 
-          {/* Bugs */}
-          <CategorySection
-            icon="🐛"
-            title="Bugs"
-            count={dashboardData.categories.bugs.length}
-            issues={dashboardData.categories.bugs}
-            collapsible={true}
-            defaultExpanded={false}
-          />
-
-          {/* Feature Requests */}
-          <CategorySection
-            icon="💡"
-            title="Feature Requests"
-            count={dashboardData.categories.feature_requests.length}
-            issues={dashboardData.categories.feature_requests}
-            collapsible={true}
-            defaultExpanded={false}
-          />
-
-          {/* Questions */}
-          <CategorySection
-            icon="❓"
-            title="Questions"
-            count={dashboardData.categories.questions.length}
-            issues={dashboardData.categories.questions}
-            collapsible={true}
-            defaultExpanded={false}
-          />
-
-          {/* Low Priority */}
-          <CategorySection
-            icon="🗑️"
-            title="Low Priority"
-            count={dashboardData.categories.low_priority.length}
-            issues={dashboardData.categories.low_priority}
-            collapsible={true}
-            defaultExpanded={false}
-          />
+      {/* Search Results */}
+      {isSearchActive && searchResults !== null && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              Search Results ({searchResults.length})
+            </h3>
+            {searchResults.length === 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                No issues found matching your query. Try different keywords or lower the similarity threshold.
+              </p>
+            )}
+          </div>
+          {searchResults.length > 0 && (
+            <div>
+              {searchResults.map((result) => (
+                <div
+                  key={result.issue_number}
+                  className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600 last:border-b-0 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <a
+                          href={result.github_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        >
+                          #{result.issue_number}: {result.title}
+                        </a>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          {Math.round(result.similarity * 100)}% match
+                        </span>
+                      </div>
+                      {result.body && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+                          {result.body.substring(0, 200)}
+                          {result.body.length > 200 ? '...' : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Category sections - only show when not searching */}
+      {!isSearchActive && (
+        <>
+          {/* No issues message */}
+          {totalIssues === 0 && dashboardData.needs_triage_count === 0 ? (
+            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="text-6xl mb-4">🎉</div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                No issues to triage!
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                All issues have been processed or there are no open issues.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Critical - Always expanded */}
+              <CategorySection
+                icon="🔥"
+                title="Critical"
+                count={dashboardData.categories.critical.length}
+                issues={dashboardData.categories.critical}
+                collapsible={false}
+                defaultExpanded={true}
+              />
+
+              {/* Bugs */}
+              <CategorySection
+                icon="🐛"
+                title="Bugs"
+                count={dashboardData.categories.bugs.length}
+                issues={dashboardData.categories.bugs}
+                collapsible={true}
+                defaultExpanded={false}
+              />
+
+              {/* Feature Requests */}
+              <CategorySection
+                icon="💡"
+                title="Feature Requests"
+                count={dashboardData.categories.feature_requests.length}
+                issues={dashboardData.categories.feature_requests}
+                collapsible={true}
+                defaultExpanded={false}
+              />
+
+              {/* Questions */}
+              <CategorySection
+                icon="❓"
+                title="Questions"
+                count={dashboardData.categories.questions.length}
+                issues={dashboardData.categories.questions}
+                collapsible={true}
+                defaultExpanded={false}
+              />
+
+              {/* Low Priority */}
+              <CategorySection
+                icon="🗑️"
+                title="Low Priority"
+                count={dashboardData.categories.low_priority.length}
+                issues={dashboardData.categories.low_priority}
+                collapsible={true}
+                defaultExpanded={false}
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   )

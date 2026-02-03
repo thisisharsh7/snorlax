@@ -444,7 +444,7 @@ class IssueEmbeddingService:
         """
         # Generate embedding for query
         query_embedding = self.generate_query_embedding(query_text)
-        if not query_embedding:
+        if query_embedding is None:
             return []
 
         with self.db_pool.connection() as conn:
@@ -514,6 +514,88 @@ class IssueEmbeddingService:
                         "state": row[3],
                         "github_url": row[4],
                         "similarity": round(row[5], 3)
+                    }
+                    for row in results
+                ]
+
+    def search_by_text_simple(
+        self,
+        project_id: str,
+        query_text: str,
+        limit: int = 20,
+        category_filter: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Simple text search fallback using SQL ILIKE pattern matching.
+        Searches through issue titles and bodies when semantic search fails or returns no results.
+
+        Args:
+            project_id: Project identifier
+            query_text: Search query text
+            limit: Maximum number of results (default 20)
+            category_filter: Optional category to filter by
+
+        Returns:
+            List of issues matching the text query
+        """
+        with self.db_pool.connection() as conn:
+            register_vector(conn)
+            with conn.cursor() as cur:
+                # Create search pattern for ILIKE
+                search_pattern = f"%{query_text}%"
+
+                if category_filter:
+                    sql = """
+                        SELECT DISTINCT
+                            gi.issue_number,
+                            gi.title,
+                            gi.body,
+                            gi.state,
+                            gi.github_url
+                        FROM github_issues gi
+                        LEFT JOIN issue_categories ic
+                            ON gi.project_id = ic.project_id
+                            AND gi.issue_number = ic.issue_number
+                        WHERE gi.project_id = %s
+                          AND gi.state = 'open'
+                          AND ic.category = %s
+                          AND (gi.title ILIKE %s OR gi.body ILIKE %s)
+                        ORDER BY gi.created_at DESC
+                        LIMIT %s
+                    """
+                    cur.execute(sql, (
+                        project_id, category_filter,
+                        search_pattern, search_pattern, limit
+                    ))
+                else:
+                    sql = """
+                        SELECT
+                            gi.issue_number,
+                            gi.title,
+                            gi.body,
+                            gi.state,
+                            gi.github_url
+                        FROM github_issues gi
+                        WHERE gi.project_id = %s
+                          AND gi.state = 'open'
+                          AND (gi.title ILIKE %s OR gi.body ILIKE %s)
+                        ORDER BY gi.created_at DESC
+                        LIMIT %s
+                    """
+                    cur.execute(sql, (
+                        project_id, search_pattern, search_pattern, limit
+                    ))
+
+                results = cur.fetchall()
+
+                return [
+                    {
+                        "issue_number": row[0],
+                        "title": row[1],
+                        "body": row[2],
+                        "state": row[3],
+                        "github_url": row[4],
+                        "similarity": None  # No similarity score for text search
                     }
                     for row in results
                 ]
