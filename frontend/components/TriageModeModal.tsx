@@ -103,6 +103,26 @@ const BUTTON_STYLES: Record<string, string> = {
   warning: 'bg-orange-600 hover:bg-orange-700 text-white'
 }
 
+// Helper function to fix GitHub image URLs
+function fixGitHubImageUrl(url: string): string {
+  if (!url) return url;
+
+  // If it's a relative URL, convert to absolute GitHub URL
+  if (url.startsWith('/')) {
+    // This shouldn't happen often, but handle it just in case
+    return `https://github.com${url}`;
+  }
+
+  // GitHub camo proxy URLs are fine
+  if (url.includes('camo.githubusercontent.com') ||
+      url.includes('user-images.githubusercontent.com') ||
+      url.includes('github.com/user-attachments')) {
+    return url;
+  }
+
+  return url;
+}
+
 export default function TriageModeModal({ projectId, isOpen, onClose, initialIssueNumber }: TriageModeModalProps) {
   const [issues, setIssues] = useState<Issue[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -498,9 +518,45 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                         pre: ({ node, ...props }) => (
                           <pre className="bg-gray-200 dark:bg-gray-700 p-2 rounded-md overflow-x-auto text-xs my-2" {...props} />
                         ),
-                        img: ({ node, ...props }) => (
-                          <img {...props} className="max-w-full h-auto rounded-md my-2" alt={props.alt || ''} />
-                        ),
+                        img: ({ node, ...props }) => {
+                          // Check if it's a video
+                          const src = (typeof props.src === 'string' ? props.src : '') || '';
+                          const fixedSrc = fixGitHubImageUrl(src);
+                          const isVideo = src.match(/\.(mp4|webm|ogg|mov)$/i) || (src.includes('user-attachments') && src.includes('.mov'));
+
+                          if (isVideo) {
+                            return (
+                              <video
+                                controls
+                                className="max-w-full h-auto rounded-md my-2"
+                                src={fixedSrc}
+                              >
+                                Your browser does not support the video tag.
+                              </video>
+                            );
+                          }
+
+                          return (
+                            <img
+                              {...props}
+                              src={fixedSrc}
+                              className="max-w-full h-auto rounded-md my-2"
+                              alt={props.alt || ''}
+                              crossOrigin="anonymous"
+                              referrerPolicy="no-referrer"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'block';
+                                target.style.padding = '1rem';
+                                target.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                                target.style.border = '1px dashed rgba(239, 68, 68, 0.5)';
+                                target.style.borderRadius = '0.375rem';
+                                target.alt = `❌ Image failed to load: ${props.alt || fixedSrc}`;
+                              }}
+                            />
+                          );
+                        },
                         h1: ({ node, ...props }) => <h1 className="text-base font-bold mt-3 mb-1.5 text-gray-900 dark:text-white" {...props} />,
                         h2: ({ node, ...props }) => <h2 className="text-sm font-bold mt-2.5 mb-1.5 text-gray-900 dark:text-white" {...props} />,
                         h3: ({ node, ...props }) => <h3 className="text-sm font-semibold mt-2 mb-1 text-gray-900 dark:text-white" {...props} />,
@@ -783,9 +839,45 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                                     pre: ({ node, ...props }) => (
                                       <pre className="bg-gray-200 dark:bg-gray-700 p-2 rounded-md overflow-x-auto text-xs my-1.5" {...props} />
                                     ),
-                                    img: ({ node, ...props }) => (
-                                      <img {...props} className="max-w-full h-auto rounded-md my-1.5" alt={props.alt || ''} />
-                                    ),
+                                    img: ({ node, ...props }) => {
+                                      // Check if it's a video
+                                      const src = (typeof props.src === 'string' ? props.src : '') || '';
+                                      const fixedSrc = fixGitHubImageUrl(src);
+                                      const isVideo = src.match(/\.(mp4|webm|ogg|mov)$/i) || (src.includes('user-attachments') && src.includes('.mov'));
+
+                                      if (isVideo) {
+                                        return (
+                                          <video
+                                            controls
+                                            className="max-w-full h-auto rounded-md my-1.5"
+                                            src={fixedSrc}
+                                          >
+                                            Your browser does not support the video tag.
+                                          </video>
+                                        );
+                                      }
+
+                                      return (
+                                        <img
+                                          {...props}
+                                          src={fixedSrc}
+                                          className="max-w-full h-auto rounded-md my-1.5"
+                                          alt={props.alt || ''}
+                                          crossOrigin="anonymous"
+                                          referrerPolicy="no-referrer"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            target.style.display = 'block';
+                                            target.style.padding = '0.5rem';
+                                            target.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                                            target.style.border = '1px dashed rgba(239, 68, 68, 0.5)';
+                                            target.style.borderRadius = '0.375rem';
+                                            target.alt = `❌ Image failed to load: ${props.alt || fixedSrc}`;
+                                          }}
+                                        />
+                                      );
+                                    },
                                     h1: ({ node, ...props }) => <h1 className="text-sm font-bold mt-2 mb-1 text-gray-900 dark:text-white" {...props} />,
                                     h2: ({ node, ...props }) => <h2 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white" {...props} />,
                                     h3: ({ node, ...props }) => <h3 className="text-xs font-semibold mt-1.5 mb-0.5 text-gray-900 dark:text-white" {...props} />,
