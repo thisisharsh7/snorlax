@@ -6,6 +6,7 @@ import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from datetime import date
+from pydantic import BaseModel, Field, validator
 
 from utils.database import get_db_connection
 from services.ai.categorization import IssueCategorizationService
@@ -32,6 +33,24 @@ triage_optimizer = TriageOptimizer(
 # In-memory batch triage status tracking
 # Format: { project_id: { status, total, processed, current_issue, errors, start_time } }
 batch_triage_status: Dict[str, Dict[str, Any]] = {}
+
+
+# Pydantic models for request validation
+class SemanticSearchRequest(BaseModel):
+    """Request model for semantic search endpoint."""
+    query: str = Field(..., min_length=3, max_length=500, description="Search query (min 3 characters)")
+    limit: int = Field(default=20, ge=1, le=50, description="Maximum number of results")
+    min_similarity: float = Field(default=0.3, ge=0.0, le=1.0, description="Minimum similarity threshold")
+    category_filter: Optional[str] = Field(default=None, description="Optional category filter")
+
+    @validator('category_filter')
+    def validate_category(cls, v):
+        """Validate category filter value."""
+        if v is not None:
+            valid_categories = ['critical', 'bug', 'feature_request', 'question', 'low_priority']
+            if v not in valid_categories:
+                raise ValueError(f'category_filter must be one of {valid_categories}')
+        return v
 
 
 def batch_triage_issues_task(project_id: str):
@@ -729,7 +748,14 @@ async def get_triage_analysis(project_id: str, issue_number: int):
                 ic.needs_response,
                 ic.doc_links,
                 gi.title,
-                gi.body
+                gi.body,
+                ic.decision,
+                ic.primary_message,
+                ic.evidence_bullets,
+                ic.draft_response,
+                ic.action_button_text,
+                ic.action_button_style,
+                ic.related_links
             FROM issue_categories ic
             JOIN github_issues gi
                 ON ic.project_id = gi.project_id
@@ -749,10 +775,15 @@ async def get_triage_analysis(project_id: str, issue_number: int):
                 detail="No triage analysis found for this issue"
             )
 
+        # Parse related_links JSON
+        import json
+        related_links = json.loads(result[16]) if result[16] else []
+
         return {
             "issue_number": issue_number,
             "title": result[8],
             "body": result[9],
+            # Legacy format fields
             "primary_category": result[0],
             "confidence": result[1],
             "reasoning": result[2],
@@ -760,7 +791,15 @@ async def get_triage_analysis(project_id: str, issue_number: int):
             "related_prs": result[4] or [],
             "priority_score": result[5],
             "needs_response": result[6],
-            "doc_links": [{"file": doc} for doc in (result[7] or [])]
+            "doc_links": [{"file": doc} for doc in (result[7] or [])],
+            # New optimized format fields
+            "decision": result[10],
+            "primary_message": result[11],
+            "evidence_bullets": result[12] or [],
+            "draft_response": result[13],
+            "action_button_text": result[14],
+            "action_button_style": result[15],
+            "related_links": related_links
         }
 
     except HTTPException:
@@ -770,4 +809,57 @@ async def get_triage_analysis(project_id: str, issue_number: int):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get triage analysis: {str(e)}"
+        )
+
+
+@router.post("/search-semantic/{project_id}")
+@limiter.limit("60/minute")
+async def search_issues_semantic(
+    request: Request,
+    project_id: str,
+    body: SemanticSearchRequest
+):
+    """
+    Search issues using semantic similarity with natural language queries.
+
+    Uses pgvector cosine similarity to find issues matching the query text.
+    Supports filtering by category and configurable similarity thresholds.
+
+    Args:
+        project_id: Project identifier
+        body: Search request with query, limit, min_similarity, and optional category_filter
+
+    Returns:
+        Search results with similarity scores
+
+    Raises:
+        HTTPException: If validation fails or search errors occur
+    """
+    try:
+        logger.info(f"[{project_id}] Semantic search: '{body.query}' (category: {body.category_filter})")
+
+        # Perform semantic search using embeddings service
+        results = categorization_service.embedding_service.search_by_text(
+            project_id=project_id,
+            query_text=body.query,
+            limit=body.limit,
+            min_similarity=body.min_similarity,
+            category_filter=body.category_filter
+        )
+
+        logger.info(f"[{project_id}] Found {len(results)} results for query '{body.query}'")
+
+        return {
+            "query": body.query,
+            "results": results,
+            "count": len(results),
+            "min_similarity": body.min_similarity,
+            "category_filter": body.category_filter
+        }
+
+    except Exception as e:
+        logger.error(f"Semantic search failed for {project_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Semantic search failed: {str(e)}"
         )

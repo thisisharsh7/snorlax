@@ -99,6 +99,13 @@
       "when": 1738377600000,
       "tag": "0014_triage_optimization_caching",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "1",
+      "when": 1738627200000,
+      "tag": "0015_add_optimized_triage_fields",
+      "breakpoints": true
     }
   ]
 }

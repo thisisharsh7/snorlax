@@ -403,3 +403,117 @@ class IssueEmbeddingService:
                 except Exception as e:
                     print(f"Error searching codebase: {e}")
                     return []
+
+    def generate_query_embedding(self, query_text: str) -> Optional[List[float]]:
+        """
+        Generate 384-dimensional embedding for search query using CocoIndex.
+
+        Args:
+            query_text: Natural language query text
+
+        Returns:
+            Embedding vector or None if generation fails
+        """
+        try:
+            embedding = code_to_embedding.eval(query_text)
+            return embedding
+        except Exception as e:
+            print(f"Error generating query embedding: {e}")
+            return None
+
+    def search_by_text(
+        self,
+        project_id: str,
+        query_text: str,
+        limit: int = 20,
+        min_similarity: float = 0.3,
+        category_filter: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Search issues by text query using cosine similarity.
+
+        Args:
+            project_id: Project identifier
+            query_text: Natural language search query
+            limit: Maximum number of results (default 20)
+            min_similarity: Minimum similarity threshold 0.0-1.0 (default 0.3)
+            category_filter: Optional category to filter by (critical|bug|feature_request|question|low_priority)
+
+        Returns:
+            List of issues with similarity scores (0-1)
+        """
+        # Generate embedding for query
+        query_embedding = self.generate_query_embedding(query_text)
+        if not query_embedding:
+            return []
+
+        with self.db_pool.connection() as conn:
+            register_vector(conn)
+            with conn.cursor() as cur:
+                # Build query with optional category filter
+                if category_filter:
+                    sql = """
+                        SELECT
+                            ie.issue_number,
+                            gi.title,
+                            gi.body,
+                            gi.state,
+                            gi.github_url,
+                            1 - (ie.embedding <=> %s) AS similarity
+                        FROM issue_embeddings ie
+                        JOIN github_issues gi
+                            ON ie.project_id = gi.project_id
+                            AND ie.issue_number = gi.issue_number
+                        LEFT JOIN issue_categories ic
+                            ON ie.project_id = ic.project_id
+                            AND ie.issue_number = ic.issue_number
+                        WHERE ie.project_id = %s
+                          AND ie.type = 'issue'
+                          AND gi.state = 'open'
+                          AND ic.category = %s
+                          AND 1 - (ie.embedding <=> %s) >= %s
+                        ORDER BY ie.embedding <=> %s
+                        LIMIT %s
+                    """
+                    cur.execute(sql, (
+                        query_embedding, project_id, category_filter,
+                        query_embedding, min_similarity, query_embedding, limit
+                    ))
+                else:
+                    sql = """
+                        SELECT
+                            ie.issue_number,
+                            gi.title,
+                            gi.body,
+                            gi.state,
+                            gi.github_url,
+                            1 - (ie.embedding <=> %s) AS similarity
+                        FROM issue_embeddings ie
+                        JOIN github_issues gi
+                            ON ie.project_id = gi.project_id
+                            AND ie.issue_number = gi.issue_number
+                        WHERE ie.project_id = %s
+                          AND ie.type = 'issue'
+                          AND gi.state = 'open'
+                          AND 1 - (ie.embedding <=> %s) >= %s
+                        ORDER BY ie.embedding <=> %s
+                        LIMIT %s
+                    """
+                    cur.execute(sql, (
+                        query_embedding, project_id,
+                        query_embedding, min_similarity, query_embedding, limit
+                    ))
+
+                results = cur.fetchall()
+
+                return [
+                    {
+                        "issue_number": row[0],
+                        "title": row[1],
+                        "body": row[2],
+                        "state": row[3],
+                        "github_url": row[4],
+                        "similarity": round(row[5], 3)
+                    }
+                    for row in results
+                ]
