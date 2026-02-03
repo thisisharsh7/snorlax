@@ -387,7 +387,8 @@ async def get_issues_with_triage(project_id: str, state: str = "open"):
             has_triage = row[6] is not None or row[9] is not None  # category or decision exists
 
             if has_triage:
-                related_links = json.loads(row[14]) if row[14] else []
+                # JSONB is already parsed by psycopg, no need for json.loads()
+                related_links = row[15] if row[15] else []
 
                 triage = {
                     "primary_category": row[6],
@@ -914,9 +915,8 @@ async def get_triage_analysis(project_id: str, issue_number: int):
                 detail="No triage analysis found for this issue"
             )
 
-        # Parse related_links JSON
-        import json
-        related_links = json.loads(result[16]) if result[16] else []
+        # JSONB fields are already parsed by psycopg, no need for json.loads()
+        related_links = result[16] if result[16] else []
 
         analysis_data = {
             "issue_number": issue_number,
