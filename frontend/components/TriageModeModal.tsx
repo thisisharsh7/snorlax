@@ -188,35 +188,9 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
     async function loadIssues() {
       setAnalyzedIssues(new Map()) // Clear cache on open
-      setLoadingAnalysis(true) // Show loader while checking
 
-      // If specific issue requested, try to load it first
-      if (initialIssueNumber) {
-        const hasAnalysis = await loadSavedAnalysis(initialIssueNumber)
-        setLoadingAnalysis(false) // Done checking
-
-        if (hasAnalysis) {
-          // Issue is categorized and we have its analysis
-          // The analysis contains the issue details (title, body from the saved data)
-          // Create a minimal issue object from the analysis
-          const issueFromAnalysis = {
-            issue_number: initialIssueNumber,
-            title: analysis?.title || `Issue #${initialIssueNumber}`,
-            body: analysis?.body || '',
-            state: 'open',
-            created_at: new Date().toISOString()
-          }
-
-          console.log('✅ Loaded categorized issue:', initialIssueNumber, 'with saved analysis')
-
-          // Show only this issue with its analysis
-          setIssues([issueFromAnalysis])
-          setCurrentIndex(0)
-          return // Don't load uncategorized list
-        }
-      }
-
-      // Load uncategorized issues (default behavior)
+      // ALWAYS load ALL uncategorized issues (search is just a UI filter)
+      // Even if initialIssueNumber is provided, load the full list
       await loadIssuesWithTriage()
       setLoadingAnalysis(false) // Done loading
     }
