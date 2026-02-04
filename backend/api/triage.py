@@ -584,9 +584,9 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
         # Store analysis results to database
         try:
-            print(f"🔍 DEBUG: About to store analysis for issue #{issue_number}")
-            print(f"🔍 DEBUG: Analysis has decision: {result.get('decision')}")
-            print(f"🔍 DEBUG: Analysis has primary_category: {result.get('primary_category')}")
+            logger.debug(f"[{project_id}] Storing analysis for issue #{issue_number}")
+            logger.debug(f"[{project_id}] Analysis has decision: {result.get('decision')}")
+            logger.debug(f"[{project_id}] Analysis has primary_category: {result.get('primary_category')}")
 
             categorization_service._store_triage_results(
                 project_id=project_id,
@@ -594,11 +594,9 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
                 analysis=result,
                 doc_links=doc_links
             )
-            logger.info(f"[{project_id}] ✅ Stored analysis results to database for issue #{issue_number}")
-            print(f"✅ SUCCESS: Stored analysis for issue #{issue_number}")
+            logger.info(f"[{project_id}] Stored analysis results to database for issue #{issue_number}")
         except Exception as e:
-            logger.error(f"[{project_id}] ❌ Failed to store analysis results: {e}")
-            print(f"❌ ERROR storing analysis: {e}")
+            logger.error(f"[{project_id}] Failed to store analysis results: {e}")
             import traceback
             traceback.print_exc()
             # Continue even if storage fails, so user still gets the result

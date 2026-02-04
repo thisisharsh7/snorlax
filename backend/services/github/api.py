@@ -141,13 +141,13 @@ class GitHubService:
             self.github = Github(self.token)
             # Show first 10 chars of token for verification (not full token for security)
             token_preview = self.token[:10] if len(self.token) >= 10 else self.token[:5]
-            print(f"✓ GitHub service initialized with AUTHENTICATED token (starts with: {token_preview}...)")
-            print(f"   Rate limit: 5,000 calls/hour")
+            logger.info(f"GitHub service initialized with authenticated token (starts with: {token_preview}...)")
+            logger.info(f"Rate limit: 5,000 calls/hour")
         else:
             self.github = Github()  # Unauthenticated (rate limited)
-            print("⚠ WARNING: GitHub service initialized WITHOUT token")
-            print("   Rate limit: 60 calls/hour (unauthenticated)")
-            print("   Add a GitHub token in Settings to get 5,000 calls/hour")
+            logger.warning("GitHub service initialized WITHOUT token")
+            logger.warning("Rate limit: 60 calls/hour (unauthenticated)")
+            logger.warning("Add a GitHub token in Settings to get 5,000 calls/hour")
 
         self.db_url = os.getenv("APP_DATABASE_URL")
 
@@ -180,7 +180,7 @@ class GitHubService:
 
             # Show authentication status
             auth_status = "AUTHENTICATED" if self.token else "UNAUTHENTICATED"
-            print(f"Rate limit check [{auth_status}]: {remaining}/{limit} calls remaining, resets at {reset_time.strftime('%I:%M %p')}")
+            logger.info(f"Rate limit check [{auth_status}]: {remaining}/{limit} calls remaining, resets at {reset_time.strftime('%I:%M %p')}")
 
             if remaining < required_calls:
                 return {
@@ -197,7 +197,7 @@ class GitHubService:
             }
         except Exception as e:
             # If we can't check rate limit, proceed cautiously
-            print(f"Warning: Could not check rate limit: {str(e)}")
+            logger.warning(f"Could not check rate limit: {str(e)}")
             return {"sufficient": True, "remaining": -1}
 
     def extract_repo_name_from_url(self, github_url: str) -> str:
@@ -279,13 +279,13 @@ class GitHubService:
             # Use incremental sync if we have a previous sync time
             # This fetches only issues updated since last sync
             if last_sync:
-                print(f"Incremental sync: fetching issues updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
+                logger.info(f"Incremental sync: fetching issues updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
                 issues = repo.get_issues(state='all', since=last_sync)
             else:
-                print(f"Full sync: fetching all issues")
+                logger.info(f"Full sync: fetching all issues")
                 issues = repo.get_issues(state='all')
 
-            print(f"Importing up to {limit if limit else 'all'} NEW issues (DB has {len(existing_issues)} existing)...")
+            logger.info(f"Importing up to {limit if limit else 'all'} NEW issues (DB has {len(existing_issues)} existing)...")
 
             for issue in issues:
                 # Skip pull requests (they have their own table)
@@ -298,21 +298,21 @@ class GitHubService:
 
                 # Stop if we've imported enough NEW items
                 if limit and imported_count >= limit:
-                    print(f"✓ Reached import limit of {limit} NEW issues")
+                    logger.info(f"Reached import limit of {limit} NEW issues")
                     break
 
                 # Safety check: stop if we've fetched way more than the limit
                 # (indicates mostly duplicates, prevents runaway API calls)
                 if limit and fetched_count >= limit * 2:
-                    print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
+                    logger.warning(f"Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
                     break
 
                 # Rate limit monitoring every 50 items
                 if fetched_count % 50 == 0:
-                    print(f"Progress: fetched {fetched_count}, imported {imported_count}, skipped {skipped_count}")
+                    logger.info(f"Progress: fetched {fetched_count}, imported {imported_count}, skipped {skipped_count}")
                     rate_check = self.check_rate_limit(required_calls=5)
                     if not rate_check["sufficient"]:
-                        print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
+                        logger.warning(f"Stopping early: only {rate_check['remaining']} API calls remaining")
                         break
 
                 try:
@@ -372,10 +372,10 @@ class GitHubService:
                     # Commit every 100 items to save progress
                     if (imported_count + updated_count) % 100 == 0:
                         conn.commit()
-                        print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
+                        logger.info(f"Committed batch: {imported_count} new, {updated_count} updated so far")
 
                 except Exception as e:
-                    print(f"Error importing issue #{issue.number}: {str(e)}")
+                    logger.error(f"Error importing issue #{issue.number}: {str(e)}")
                     continue
 
             # Update last_issues_sync timestamp for incremental sync
@@ -494,11 +494,11 @@ class GitHubService:
             prs = repo.get_pulls(state='all', sort='updated', direction='desc')
 
             if last_sync:
-                print(f"Incremental sync: filtering PRs updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
+                logger.info(f"Incremental sync: filtering PRs updated since {last_sync.strftime('%Y-%m-%d %I:%M %p')}")
             else:
-                print(f"Full sync: fetching all PRs")
+                logger.info(f"Full sync: fetching all PRs")
 
-            print(f"Importing up to {limit if limit else 'all'} NEW PRs (DB has {len(existing_prs)} existing)...")
+            logger.info(f"Importing up to {limit if limit else 'all'} NEW PRs (DB has {len(existing_prs)} existing)...")
 
             try:
                 for pr in prs:
@@ -507,13 +507,13 @@ class GitHubService:
 
                         # Stop if we've imported enough NEW items
                         if limit and imported_count >= limit:
-                            print(f"✓ Reached import limit of {limit} NEW PRs")
+                            logger.info(f"Reached import limit of {limit} NEW PRs")
                             break
 
                         # Safety check: stop if we've fetched way more than the limit
                         # (indicates mostly duplicates, prevents runaway API calls)
                         if limit and fetched_count >= limit * 2:
-                            print(f"⚠ Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
+                            logger.warning(f"Safety stop: fetched {fetched_count} items, well beyond limit of {limit}")
                             break
 
                         # Skip PRs not updated since last sync (for incremental sync)
@@ -526,10 +526,10 @@ class GitHubService:
 
                         # Rate limit monitoring every 50 items
                         if fetched_count % 50 == 0:
-                            print(f"Progress: fetched {fetched_count}, imported {imported_count}, updated {updated_count}, skipped {skipped_count}")
+                            logger.info(f"Progress: fetched {fetched_count}, imported {imported_count}, updated {updated_count}, skipped {skipped_count}")
                             rate_check = self.check_rate_limit(required_calls=5)
                             if not rate_check["sufficient"]:
-                                print(f"⚠ Stopping early: only {rate_check['remaining']} API calls remaining")
+                                logger.warning(f"Stopping early: only {rate_check['remaining']} API calls remaining")
                                 break
                         # Extract labels
                         labels = [label.name for label in pr.labels]
@@ -610,19 +610,19 @@ class GitHubService:
                         # Commit every 100 items to save progress
                         if (imported_count + updated_count) % 100 == 0:
                             conn.commit()
-                            print(f"✓ Committed batch: {imported_count} new, {updated_count} updated so far")
+                            logger.info(f"Committed batch: {imported_count} new, {updated_count} updated so far")
 
                     except Exception as e:
-                        print(f"Error importing PR #{pr.number}: {str(e)}")
+                        logger.error(f"Error importing PR #{pr.number}: {str(e)}")
                         continue
 
             except StopIteration:
                 # Normal end of pagination
-                print(f"Completed pagination: fetched {fetched_count} PRs")
+                logger.info(f"Completed pagination: fetched {fetched_count} PRs")
             except Exception as e:
                 # Catch errors during pagination (e.g., network issues, GitHub API errors)
-                print(f"⚠ Error during PR pagination: {str(e)}")
-                print(f"Stopping PR import. Successfully processed {imported_count} new, {updated_count} updated")
+                logger.error(f"Error during PR pagination: {str(e)}")
+                logger.info(f"Stopping PR import. Successfully processed {imported_count} new, {updated_count} updated")
                 import traceback
                 traceback.print_exc()
 

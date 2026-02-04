@@ -22,7 +22,7 @@ interface IndexingTimelineProps {
 const STAGES: Omit<Stage, 'status'>[] = [
   { id: 'clone', title: 'Cloning repository', description: 'Downloading repository from GitHub' },
   { id: 'index', title: 'Indexing code files', description: 'Analyzing code structure and building search index' },
-  { id: 'import', title: 'Importing issues & PRs', description: 'Finalizing repository setup' }
+  { id: 'import', title: 'Importing open issues', description: 'Fetching issues from GitHub API' }
 ]
 
 export default function IndexingTimeline({
@@ -239,13 +239,13 @@ export default function IndexingTimeline({
             <div key={stage.id} className="relative flex items-start gap-3">
               {/* Vertical connector line */}
               {index < stages.length - 1 && (
-                <div className="absolute left-1 top-8 w-px h-8">
+                <div className="absolute left-2 top-8 w-px h-8">
                   {/* Animated line fill */}
-                  <div className="w-full h-full bg-gray-200 dark:bg-gray-700">
+                  <div className="w-full h-full bg-neutral-200 dark:bg-neutral-700">
                     <div
                       className={`w-full transition-all duration-300 ease-out ${
                         stage.status === 'completed'
-                          ? 'h-full bg-gray-900 dark:bg-gray-100'
+                          ? 'h-full bg-neutral-900 dark:bg-neutral-100'
                           : 'h-0'
                       }`}
                     />
@@ -253,27 +253,35 @@ export default function IndexingTimeline({
                 </div>
               )}
 
-              {/* Status indicator - minimal circle */}
+              {/* Status indicator - clear visual states */}
               <div className="relative z-10 flex-shrink-0 mt-0.5">
                 {stage.status === 'completed' && (
-                  // Solid black dot
-                  <div className="w-2 h-2 rounded-full bg-gray-900 dark:bg-gray-100" />
+                  // Solid dot with checkmark feel
+                  <div className="w-4 h-4 rounded-full bg-neutral-900 dark:bg-neutral-100 flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-white dark:text-neutral-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
                 )}
                 {stage.status === 'in_progress' && (
-                  // Black stroke with subtle rotation
-                  <div className="w-2 h-2 relative">
-                    <div className="absolute inset-0 rounded-full border border-gray-900 dark:border-gray-100" />
-                    <div className="absolute inset-0 rounded-full border border-transparent border-t-gray-900 dark:border-t-gray-100 animate-spin"
-                         style={{ animationDuration: '2s' }} />
+                  // Spinner with distinct blue accent
+                  <div className="w-4 h-4 relative">
+                    <div className="absolute inset-0 rounded-full border-2 border-neutral-200 dark:border-neutral-700" />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-accent-blue-600 dark:border-t-accent-blue-400 animate-spin"
+                         style={{ animationDuration: '1s' }} />
                   </div>
                 )}
                 {stage.status === 'error' && (
                   // Red dot for errors
-                  <div className="w-2 h-2 rounded-full bg-red-600 dark:bg-red-400" />
+                  <div className="w-4 h-4 rounded-full bg-accent-red-600 dark:bg-accent-red-400 flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </div>
                 )}
                 {stage.status === 'pending' && (
                   // Light gray border only
-                  <div className="w-2 h-2 rounded-full border border-gray-300 dark:border-gray-600" />
+                  <div className="w-4 h-4 rounded-full border-2 border-neutral-200 dark:border-neutral-700" />
                 )}
               </div>
 

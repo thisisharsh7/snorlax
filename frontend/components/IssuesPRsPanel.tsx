@@ -25,20 +25,6 @@ interface SearchResult {
   similarity: number | null
 }
 
-// DISABLED: PR functionality removed for first version
-// interface PullRequest {
-//   number: number
-//   title: string
-//   state: string
-//   author: string
-//   created_at: string
-//   updated_at: string
-//   merged_at: string | null
-//   labels: string[]
-//   html_url: string
-//   body: string
-// }
-
 interface CategorizedIssue {
   issue_number: number
 
@@ -79,7 +65,6 @@ interface IssuesPRsPanelProps {
   onReindex: () => void
   isBackgroundSyncing?: boolean
   onOpenTriage: (issueNumber: number) => void
-  // onOpenPRTriage: (prNumber: number) => void // DISABLED: PR functionality removed
 }
 
 // Custom hook for debouncing values
@@ -100,9 +85,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onImport, onOpenSettings, onReindex, isBackgroundSyncing, onOpenTriage }: IssuesPRsPanelProps) {
-  // const [activeTab, setActiveTab] = useState<'issues' | 'prs'>('issues') // DISABLED: PR functionality removed
-  const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('open') // Changed default to 'open'
-  // const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all') // DISABLED: PR functionality removed
+  const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('open')
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'duplicate' | 'implemented' | 'fixed_in_pr' | 'theme_cluster'>('all')
 
   // ✅ USE MAP INSTEAD OF ARRAY for O(1) lookups
@@ -113,7 +96,6 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
 
-  // const [prs, setPrs] = useState<PullRequest[]>([]) // DISABLED: PR functionality removed
   const [categorizedIssues, setCategorizedIssues] = useState<CategorizedIssue[]>([])
   const [categoryStats, setCategoryStats] = useState<CategoryStats>({
     total: 0,
@@ -340,79 +322,6 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     }
   }
 
-  // DISABLED: PR functionality removed for first version
-  // async function loadPRs() {
-  //   setLoading(true)
-  //   setError(null)
-  //   try {
-  //     const controller = new AbortController()
-  //     const timeoutId = setTimeout(() => controller.abort(), 10000)
-
-  //     const stateParam = prFilter === 'all' ? '' : `?state=${prFilter}`
-  //     const res = await fetch(`${API_ENDPOINTS.githubPRs(projectId)}${stateParam}`, {
-  //       signal: controller.signal
-  //     })
-  //     clearTimeout(timeoutId)
-
-  //     if (!res.ok) {
-  //       const data = await res.json()
-  //       throw new Error(data.detail || 'Failed to load pull requests')
-  //     }
-
-  //     const data = await res.json()
-
-  //     // Sort by created_at descending (newest first)
-  //     const sortedPRs = (data.pull_requests || []).sort((a: PullRequest, b: PullRequest) => {
-  //       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  //     })
-
-  //     setPrs(sortedPRs)
-  //   } catch (e: any) {
-  //     if (e.name === 'AbortError') return // Ignore aborted requests
-  //     console.error('Failed to load PRs:', e)
-  //     setError(e.message || 'Failed to load pull requests. Please try again.')
-  //   } finally {
-  //     setLoading(false)
-  //   }
-  // }
-
-  // DISABLED: Categorization functionality removed for first version
-  // async function handleCategorizeAll() {
-  //   // Prevent multiple simultaneous categorization operations
-  //   if (categorizingRef.current) {
-  //     return
-  //   }
-
-  //   categorizingRef.current = true
-  //   setCategorizing(true)
-  //   try {
-  //     const res = await fetch(API_ENDPOINTS.categorizeIssues(projectId), {
-  //       method: 'POST'
-  //     })
-  //     if (!res.ok) throw new Error('Failed to start categorization')
-
-  //     // Poll for updates with exponential backoff
-  //     let attempts = 0
-  //     const maxAttempts = 15
-
-  //     while (attempts < maxAttempts) {
-  //       const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
-  //       await new Promise(resolve => setTimeout(resolve, delay))
-
-  //       await loadCategorizedIssues()
-  //       await loadCategoryStats()
-
-  //       attempts++
-  //     }
-  //   } catch (e) {
-  //     console.error('Failed to categorize:', e)
-  //     alert('Failed to categorize issues. Please try again.')
-  //   } finally {
-  //     categorizingRef.current = false
-  //     setCategorizing(false)
-  //   }
-  // }
-
   async function performSearch(query: string) {
     try {
       setIsSearching(true)
@@ -605,119 +514,6 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-neutral-50 dark:bg-neutral-900">
-      {/* DISABLED: Header with Categorize Button and Tabs removed for first version */}
-
-      {/* DISABLED: Category Filter Tabs - removed for first version */}
-      {false && lastSyncedAt && categoryStats.total > 0 && (
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setCategoryFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                categoryFilter === 'all'
-                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                All
-                {categoryStats.total > 0 && (
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200">
-                    {categoryStats.total}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => setCategoryFilter('duplicate')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                categoryFilter === 'duplicate'
-                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                Duplicate
-                {categoryStats.duplicates > 0 && (
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-200 dark:bg-red-900/50 text-red-700 dark:text-red-300">
-                    {categoryStats.duplicates}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => setCategoryFilter('implemented')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                categoryFilter === 'implemented'
-                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                Implemented
-                {categoryStats.implemented > 0 && (
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-200 dark:bg-green-900/50 text-green-700 dark:text-green-300">
-                    {categoryStats.implemented}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => setCategoryFilter('fixed_in_pr')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                categoryFilter === 'fixed_in_pr'
-                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                Fixed in PR
-                {categoryStats.fixed_in_pr > 0 && (
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-200 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
-                    {categoryStats.fixed_in_pr}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => setCategoryFilter('theme_cluster')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                categoryFilter === 'theme_cluster'
-                  ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                Theme Cluster
-                {categoryStats.themes > 0 && (
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-purple-200 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">
-                    {categoryStats.themes}
-                  </span>
-                )}
-              </span>
-            </button>
-          </div>
-        </div>
-      )}
-
-
-      {/* DISABLED: Active Category Filter Indicator - removed for first version */}
-      {false && categoryFilter !== 'all' && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 px-6 py-2 border-b border-blue-200 dark:border-blue-800">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-blue-700 dark:text-blue-300">
-              Showing {categoryFilter.replace('_', ' ')} issues
-            </span>
-            <button
-              onClick={() => setCategoryFilter('all')}
-              className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
-            >
-              Clear filter
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Semantic Search Bar */}
       <div className="bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-6 py-3">
         <div className="flex items-center gap-3">
@@ -997,7 +793,6 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
             </div>
           )
         )}
-        {/* DISABLED: PR display section removed for first version */}
       </div>
     </div>
   )

@@ -6,7 +6,6 @@ import RepoSidebar from '@/components/RepoSidebar'
 import IssuesPRsPanel from '@/components/IssuesPRsPanel'
 import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
 import TriageModeModal from '@/components/TriageModeModal'
-// import PRTriageModeModal from '@/components/PRTriageModeModal' // DISABLED: PR functionality removed
 import IndexModal from '@/components/IndexModal'
 import IndexingTimeline from '@/components/IndexingTimeline'
 import SettingsModal from '@/components/SettingsModal'
@@ -32,8 +31,6 @@ export default function Dashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showTriageModal, setShowTriageModal] = useState(false)
   const [selectedIssueForTriage, setSelectedIssueForTriage] = useState<number | null>(null)
-  // const [showPRTriageModal, setShowPRTriageModal] = useState(false) // DISABLED: PR functionality removed
-  // const [selectedPRForTriage, setSelectedPRForTriage] = useState<number | null>(null) // DISABLED: PR functionality removed
   const [repos, setRepos] = useState<Repository[]>([])
   const [hasAIKey, setHasAIKey] = useState(false)
   const [hasGithubToken, setHasGithubToken] = useState(false)
@@ -689,16 +686,6 @@ export default function Dashboard() {
             }}
             initialIssueNumber={selectedIssueForTriage}
           />
-          {/* DISABLED: PR functionality removed for first version */}
-          {/* <PRTriageModeModal
-            projectId={selectedRepo.project_id}
-            isOpen={showPRTriageModal}
-            onClose={() => {
-              setShowPRTriageModal(false)
-              setSelectedPRForTriage(null)
-            }}
-            initialPRNumber={selectedPRForTriage}
-          /> */}
         </>
       )}
     </div>

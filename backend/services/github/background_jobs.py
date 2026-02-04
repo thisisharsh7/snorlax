@@ -480,7 +480,6 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(
@@ -533,7 +532,6 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(
@@ -569,7 +567,6 @@ async def background_import_remaining(
             reset_time_str = result.get("reset_time")
             reset_time = None
             if reset_time_str:
-                from datetime import datetime
                 reset_time = datetime.fromtimestamp(float(reset_time_str), tz=timezone.utc)
 
             logger.info(

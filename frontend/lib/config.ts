@@ -29,11 +29,9 @@ export const API_ENDPOINTS = {
   // GitHub integration
   validateToken: () => apiUrl('/api/github/validate-token'),
   importIssues: (projectId: string) => apiUrl(`/api/github/import-issues/${projectId}`),
-  importPRs: (projectId: string) => apiUrl(`/api/github/import-prs/${projectId}`),
   importInitial: (projectId: string) => apiUrl(`/api/github/import-initial/${projectId}`),
   syncStatus: (projectId: string) => apiUrl(`/api/github/sync-status/${projectId}`),
   githubIssues: (projectId: string) => apiUrl(`/api/github/issues/${projectId}`),
-  githubPRs: (projectId: string) => apiUrl(`/api/github/prs/${projectId}`),
   postComment: (projectId: string, issueNumber: number) => apiUrl(`/api/github/post-comment/${projectId}/${issueNumber}`),
 
   // Settings
