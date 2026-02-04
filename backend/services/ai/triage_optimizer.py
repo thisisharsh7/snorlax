@@ -397,6 +397,33 @@ You can find it in: **{code['filename']}** (lines {code['start_line']}-{code['en
 
 Check the documentation for usage instructions. Let us know if you need help using it!"""
 
+    def _extract_image_urls(self, text: str, max_images: int = 3) -> list:
+        """Extract image URLs from markdown/HTML text."""
+        import re
+
+        image_urls = []
+
+        # Extract from HTML img tags: <img src="...">
+        html_pattern = r'<img[^>]+src=["\']([^"\']+)["\']'
+        html_matches = re.findall(html_pattern, text, re.IGNORECASE)
+        image_urls.extend(html_matches)
+
+        # Extract from markdown syntax: ![alt](url)
+        markdown_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
+        markdown_matches = re.findall(markdown_pattern, text)
+        image_urls.extend([url for alt, url in markdown_matches])
+
+        # Remove duplicates and limit to max_images
+        unique_urls = list(dict.fromkeys(image_urls))[:max_images]
+
+        # Filter for valid image URLs (common formats)
+        valid_urls = []
+        for url in unique_urls:
+            if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']) or 'user-attachments' in url:
+                valid_urls.append(url)
+
+        return valid_urls[:max_images]
+
     def analyze_with_claude_optimized(
         self,
         issue: Dict,
@@ -404,6 +431,7 @@ Check the documentation for usage instructions. Let us know if you need help usi
     ) -> Dict[str, Any]:
         """
         Use Claude with optimization (caching, limited tokens, simplified output).
+        Now includes vision support for images in issues.
 
         Args:
             issue: Issue to analyze
@@ -424,7 +452,32 @@ Check the documentation for usage instructions. Let us know if you need help usi
         # Build optimized prompt
         prompt = self._build_optimized_prompt(issue, context)
 
+        # Extract images from issue body
+        image_urls = self._extract_image_urls(issue.get('body', ''))
+
+        if image_urls:
+            print(f"🖼️  Found {len(image_urls)} image(s) in issue #{issue.get('issue_number')} - analyzing with vision")
+
         try:
+            # Build message content with images
+            message_content = []
+
+            # Add images first (if any)
+            for url in image_urls:
+                message_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": url
+                    }
+                })
+
+            # Add text prompt
+            message_content.append({
+                "type": "text",
+                "text": prompt
+            })
+
             # Use prompt caching for system context
             message = self.claude_client.messages.create(
                 model="claude-sonnet-4-5-20250929",
@@ -436,7 +489,7 @@ Check the documentation for usage instructions. Let us know if you need help usi
                 }],
                 messages=[{
                     "role": "user",
-                    "content": prompt
+                    "content": message_content
                 }]
             )
 
@@ -484,6 +537,7 @@ Check the documentation for usage instructions. Let us know if you need help usi
             }
 
             result['from_cache'] = False
+            result['images_analyzed'] = len(image_urls)
 
             # Save to cache
             self._save_response_cache(cache_key, result)
@@ -504,7 +558,9 @@ Check the documentation for usage instructions. Let us know if you need help usi
 
     def _get_cached_system_prompt(self) -> str:
         """System prompt that will be cached (90% cost reduction on cache hits)."""
-        return """You are a GitHub issue triage assistant. Your job is to make ONE CLEAR DECISION.
+        return """You are a GitHub issue triage assistant with vision capabilities. Your job is to make ONE CLEAR DECISION.
+
+You may receive images (screenshots, error messages, UI mockups, etc.) along with the issue text. Analyze both the text and any images to make better decisions.
 
 Return JSON with this structure:
 {
@@ -517,7 +573,7 @@ Return JSON with this structure:
   "related_links": [{"text": "Link text", "url": "URL", "source": "stackoverflow|github|docs|internal"}]
 }
 
-Be decisive. Pick ONE action. Be helpful and friendly."""
+Be decisive. Pick ONE action. Be helpful and friendly. If images show errors or bugs, reference them in your response."""
 
     def _build_optimized_prompt(self, issue: Dict, context: Dict) -> str:
         """Build short, focused prompt (only top results)."""
@@ -539,9 +595,13 @@ Be decisive. Pick ONE action. Be helpful and friendly."""
             for i, p in enumerate(prs, 1):
                 prs_text += f"\n  {i}. PR #{p['pr_number']}: {p['title']} ({int(p['similarity']*100)}% match, {p['state']}) - {p.get('github_url', 'N/A')}"
 
+        # Check if images are present
+        image_urls = self._extract_image_urls(issue.get('body', ''))
+        images_note = f"\n\nNote: {len(image_urls)} image(s) attached - analyze them for error messages, UI issues, or bugs." if image_urls else ""
+
         return f"""Issue #{issue['issue_number']}: "{issue['title']}"
 
-{issue.get('body', '')[:500]}
+{issue.get('body', '')[:500]}{images_note}
 
 Evidence:
 - Similar issues: {len(similar)} found{similar_text}
