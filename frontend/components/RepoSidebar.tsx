@@ -148,13 +148,12 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
               >
                 <button
                   type="button"
-                  onClick={() => (repo.status === 'indexed' || repo.status === 'failed') && onSelectRepo(repo.project_id)}
-                  disabled={repo.status === 'indexing'}
+                  onClick={() => onSelectRepo(repo.project_id)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2.5 ${
                     selectedProjectId === repo.project_id
                       ? 'bg-gray-200 dark:bg-gray-800'
                       : 'hover:bg-gray-150 dark:hover:bg-gray-850'
-                  } ${repo.status === 'indexing' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                  } cursor-pointer`}
                 >
                   {/* Icon - Changes on hover for indexed/failed repos */}
                   {hoveredId === repo.project_id && (repo.status === 'indexed' || repo.status === 'failed') ? (

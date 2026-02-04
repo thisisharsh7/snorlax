@@ -8,6 +8,7 @@ import CategorizedIssuesPanel from '@/components/CategorizedIssuesPanel'
 import TriageModeModal from '@/components/TriageModeModal'
 // import PRTriageModeModal from '@/components/PRTriageModeModal' // DISABLED: PR functionality removed
 import IndexModal from '@/components/IndexModal'
+import IndexingTimeline from '@/components/IndexingTimeline'
 import SettingsModal from '@/components/SettingsModal'
 import { Github, Settings, Sun, Moon, RefreshCw, AlertTriangle } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
@@ -46,6 +47,8 @@ export default function Dashboard() {
     resetTime: string | null,
     message: string
   } | null>(null)
+  const [activelyIndexingProjects, setActivelyIndexingProjects] = useState<Set<string>>(new Set())
+  const [indexingStartTimes, setIndexingStartTimes] = useState<Map<string, number>>(new Map())
 
   // Ref for immediate race condition checking
   const syncingRef = useRef(false)
@@ -246,20 +249,112 @@ export default function Dashboard() {
           setSelectedProjectId(firstIndexed.project_id)
         }
       }
+
+      // Return the data for callers that need it
+      return data
     } catch (e) {
       console.error('Failed to load repositories:', e)
+      return []
     }
   }
 
+  // Clean up stale entries from activelyIndexingProjects
+  useEffect(() => {
+    if (repos.length > 0 && activelyIndexingProjects.size > 0) {
+      const staleLookup = new Set<string>()
+
+      repos.forEach(repo => {
+        // If repo is in the actively indexing set but backend says it's indexed
+        // (and has been for >5 minutes), remove it
+        if (activelyIndexingProjects.has(repo.project_id) && repo.status === 'indexed') {
+          if (repo.indexed_at) {
+            const indexedTime = new Date(repo.indexed_at).getTime()
+            const fiveMinutesAgo = Date.now() - (5 * 60 * 1000)
+
+            // If it's been indexed for more than 5 minutes, it's stale
+            if (indexedTime < fiveMinutesAgo) {
+              staleLookup.add(repo.project_id)
+            }
+          }
+        }
+      })
+
+      // Remove stale entries
+      if (staleLookup.size > 0) {
+        console.log('🧹 Cleaning up stale indexing entries:', Array.from(staleLookup))
+        setActivelyIndexingProjects(prev => {
+          const newSet = new Set(prev)
+          staleLookup.forEach(id => newSet.delete(id))
+          return newSet
+        })
+        setIndexingStartTimes(prev => {
+          const newMap = new Map(prev)
+          staleLookup.forEach(id => newMap.delete(id))
+          return newMap
+        })
+      }
+    }
+  }, [repos, activelyIndexingProjects.size])
+
   async function handleIndexComplete(projectId: string) {
     console.log('📍 [DEBUG] Index complete callback received:', projectId)
-    // Refresh repositories list and wait for it to complete
+
+    // Record the actual start time for this project
+    setIndexingStartTimes(prev => new Map(prev).set(projectId, Date.now()))
+
+    // Mark this project as actively indexing (includes import phase)
+    setActivelyIndexingProjects(prev => new Set(prev).add(projectId))
+
+    // Refresh repositories list with retry logic to ensure repo is loaded
     console.log('🔄 [DEBUG] Loading repositories...')
-    await loadRepositories()
+    let retries = 0
+    const maxRetries = 3
+    let loadedRepos: Repository[] = []
+
+    while (retries < maxRetries) {
+      loadedRepos = await loadRepositories()
+
+      // Check if the repo is now in the list
+      const repoExists = loadedRepos.some(r => r.project_id === projectId)
+      if (repoExists) {
+        console.log('✅ [DEBUG] Repository found in list')
+        break
+      }
+
+      // If not found, wait a bit and retry
+      retries++
+      if (retries < maxRetries) {
+        console.log(`⏳ [DEBUG] Repository not found, retrying... (${retries}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
     console.log('✅ [DEBUG] Repositories loaded, selecting project')
+
     // Select the newly indexed project
     setSelectedProjectId(projectId)
     console.log('✅ [DEBUG] Project selected:', projectId)
+  }
+
+  function handleIndexingComplete(projectId: string) {
+    console.log('✅ [DEBUG] Full indexing flow complete for:', projectId)
+
+    // Remove from actively indexing set
+    setActivelyIndexingProjects(prev => {
+      const newSet = new Set(prev)
+      newSet.delete(projectId)
+      return newSet
+    })
+
+    // Remove the start time tracking
+    setIndexingStartTimes(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(projectId)
+      return newMap
+    })
+
+    // Refresh repositories to get the final status
+    loadRepositories()
   }
 
   async function handleReindex(projectId?: string) {
@@ -291,8 +386,16 @@ export default function Dashboard() {
       const result = await res.json()
       console.log('[Re-index] Success:', result)
 
+      // Set up tracking state (same as handleIndexComplete)
+      console.log('[Re-index] Setting up tracking state')
+      setIndexingStartTimes(prev => new Map(prev).set(targetProjectId, Date.now()))
+      setActivelyIndexingProjects(prev => new Set(prev).add(targetProjectId))
+
       // Refresh repository list to show updated status
       await loadRepositories()
+
+      // Select the reindexing project to show timeline
+      setSelectedProjectId(targetProjectId)
     } catch (e) {
       console.error('[Re-index] Failed to start re-indexing:', e)
       alert(`Failed to start re-indexing: ${e instanceof Error ? e.message : 'Unknown error'}`)
@@ -447,59 +550,97 @@ export default function Dashboard() {
                     Add Token
                   </button>
                 </div>
+                {activelyIndexingProjects.size > 0 && (
+                  <button
+                    onClick={() => {
+                      console.log('🧹 Manually clearing all indexing state')
+                      setActivelyIndexingProjects(new Set())
+                      setIndexingStartTimes(new Map())
+                    }}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                    title="Clear indexing state (debug)"
+                  >
+                    🧹
+                  </button>
+                )}
               </div>
             </div>
           )}
 
           {/* Content */}
-          {selectedRepo.status === 'indexed' ? (
-            <IssuesPRsPanel
-              projectId={selectedRepo.project_id}
-              repoName={selectedRepo.repo_name}
-              lastSyncedAt={selectedRepo.last_synced_at}
-              onImport={loadRepositories}
-              onOpenSettings={() => setShowSettingsModal(true)}
-              onReindex={handleReindex}
-              isBackgroundSyncing={isBackgroundSyncing}
-              onOpenTriage={(issueNumber) => {
-                setSelectedIssueForTriage(issueNumber)
-                setShowTriageModal(true)
-              }}
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-              <div className="text-center max-w-2xl px-4">
-                {selectedRepo.status === 'indexing' && (
-                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-300 dark:border-gray-700 border-t-gray-900 dark:border-t-gray-300 mx-auto mb-4"></div>
-                )}
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  {selectedRepo.status === 'indexing' ? 'Indexing Repository' : 'Repository Not Ready'}
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                  {selectedRepo.status === 'indexing'
-                    ? 'Please wait while we index your repository. This may take a few minutes.'
-                    : 'This repository failed to index. Please try re-indexing.'}
-                </p>
+          {(() => {
+            // Priority 1: If backend says indexed AND (not in active set OR indexed >5min ago), show issues
+            const isRecentlyIndexed = selectedRepo.indexed_at &&
+              (Date.now() - new Date(selectedRepo.indexed_at).getTime()) < (5 * 60 * 1000)
 
-                {/* Error Details */}
-                {selectedRepo.status === 'failed' && selectedRepo.error_message && (
-                  <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 text-left">
-                    <p className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
-                      Error Details:
-                    </p>
-                    <p className="text-xs text-red-700 dark:text-red-300 font-mono break-words">
-                      {selectedRepo.error_message}
-                    </p>
-                    {selectedRepo.last_error_at && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-3">
-                        Last error at: {new Date(selectedRepo.last_error_at).toLocaleString()}
+            if (selectedRepo.status === 'indexed' &&
+                (!activelyIndexingProjects.has(selectedRepo.project_id) || !isRecentlyIndexed)) {
+              return (
+                <IssuesPRsPanel
+                  projectId={selectedRepo.project_id}
+                  repoName={selectedRepo.repo_name}
+                  lastSyncedAt={selectedRepo.last_synced_at}
+                  onImport={loadRepositories}
+                  onOpenSettings={() => setShowSettingsModal(true)}
+                  onReindex={handleReindex}
+                  isBackgroundSyncing={isBackgroundSyncing}
+                  onOpenTriage={(issueNumber) => {
+                    setSelectedIssueForTriage(issueNumber)
+                    setShowTriageModal(true)
+                  }}
+                />
+              )
+            }
+
+            // Priority 2: If indexing OR in active set with recent indexed_at, show timeline
+            if (selectedRepo.status === 'indexing' ||
+                (activelyIndexingProjects.has(selectedRepo.project_id) && isRecentlyIndexed)) {
+              return (
+                <IndexingTimeline
+                  projectId={selectedRepo.project_id}
+                  repoName={selectedRepo.repo_name}
+                  startTime={indexingStartTimes.get(selectedRepo.project_id)}
+                  onComplete={() => {
+                    console.log('Indexing complete, refreshing repositories')
+                    handleIndexingComplete(selectedRepo.project_id)
+                  }}
+                  onError={(error) => {
+                    console.error('Indexing error:', error)
+                    handleIndexingComplete(selectedRepo.project_id)
+                  }}
+                />
+              )
+            }
+
+            // Priority 3: Failed state
+            return (
+              <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+                <div className="text-center max-w-2xl px-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    Repository Not Ready
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    This repository failed to index. Please try re-indexing.
+                  </p>
+
+                  {/* Error Details */}
+                  {selectedRepo.error_message && (
+                    <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 text-left">
+                      <p className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
+                        Error Details:
                       </p>
-                    )}
-                  </div>
-                )}
+                      <p className="text-xs text-red-700 dark:text-red-300 font-mono break-words">
+                        {selectedRepo.error_message}
+                      </p>
+                      {selectedRepo.last_error_at && (
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-3">
+                          Last error at: {new Date(selectedRepo.last_error_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
-                {/* Reindex Button for Failed Status */}
-                {selectedRepo.status === 'failed' && (
+                  {/* Reindex Button for Failed Status */}
                   <button
                     onClick={() => handleReindex(selectedRepo.project_id)}
                     className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 mx-auto"
@@ -507,10 +648,10 @@ export default function Dashboard() {
                     <RefreshCw className="h-4 w-4" />
                     Try Re-indexing
                   </button>
-                )}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
         </div>
       ) : (
         <div className="flex-1 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">

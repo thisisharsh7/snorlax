@@ -6,6 +6,8 @@ import uuid
 import os
 import traceback
 import logging
+import shutil
+from pathlib import Path
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -389,14 +391,37 @@ async def delete_repository(project_id: str):
 
         repo_name = result[0]
 
-        # Delete repository (CASCADE will handle related data)
+        # Step 1: Delete repository from database (CASCADE will handle related data)
         cur.execute(
             "DELETE FROM repositories WHERE project_id = %s",
             (project_id,)
         )
         conn.commit()
+
+        # Step 2: Drop CocoIndex embeddings table
+        embeddings_table = f"embeddings_{project_id.replace('-', '_')}"
+        try:
+            logger.info(f"[{project_id}] Dropping CocoIndex embeddings table: {embeddings_table}")
+            cur.execute(f"DROP TABLE IF EXISTS {embeddings_table} CASCADE")
+            conn.commit()
+            logger.info(f"[{project_id}] CocoIndex table dropped successfully")
+        except Exception as e:
+            logger.warning(f"[{project_id}] Failed to drop embeddings table (non-critical): {str(e)}")
+
         cur.close()
         conn.close()
+
+        # Step 3: Delete cloned repository files from disk
+        repo_path = Path(os.getenv("DATA_DIR", "./data")) / "repos" / project_id
+        try:
+            if repo_path.exists():
+                logger.info(f"[{project_id}] Deleting cloned repository files at: {repo_path}")
+                shutil.rmtree(repo_path)
+                logger.info(f"[{project_id}] Repository files deleted successfully")
+            else:
+                logger.info(f"[{project_id}] No repository files found at: {repo_path}")
+        except Exception as e:
+            logger.warning(f"[{project_id}] Failed to delete repository files (non-critical): {str(e)}")
 
         return {
             "message": f"Repository '{repo_name}' deleted successfully",
