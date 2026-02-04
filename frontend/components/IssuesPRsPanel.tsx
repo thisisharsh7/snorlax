@@ -169,29 +169,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     }
   }, [projectId, issueFilter, lastSyncedAt])
 
-  // ✅ Efficiently sync issues when reindex completes
-  useEffect(() => {
-    if (!isBackgroundSyncing) return
-
-    // When syncing starts, wait for it to complete then sync issues
-    const checkInterval = setInterval(async () => {
-      try {
-        const res = await fetch(API_ENDPOINTS.status(projectId))
-        const data = await res.json()
-
-        if (data.status === 'indexed') {
-          // Reindex completed - sync new issues efficiently
-          console.log('✓ Reindex completed - syncing new issues...')
-          await syncNewIssues()
-          clearInterval(checkInterval)
-        }
-      } catch (err) {
-        console.error('Failed to check reindex status:', err)
-      }
-    }, 3000) // Check every 3 seconds
-
-    return () => clearInterval(checkInterval)
-  }, [isBackgroundSyncing, projectId])
+  // Note: Reindex automatically syncs issues in backend (index_repository Step 5)
+  // No need to trigger additional sync here - it would cause duplicate sync jobs
 
   async function checkGithubToken() {
     try {

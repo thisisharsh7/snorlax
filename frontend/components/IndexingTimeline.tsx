@@ -34,7 +34,6 @@ export default function IndexingTimeline({
     STAGES.map(s => ({ ...s, status: 'pending' as const }))
   )
   const [error, setError] = useState<string | null>(null)
-  const [importStarted, setImportStarted] = useState(false)
 
   // Poll status and update stages based on backend current_stage
   useEffect(() => {
@@ -51,12 +50,15 @@ export default function IndexingTimeline({
         if (data.status === 'indexing') {
           // Update stages based on backend current_stage
           updateStagesFromBackend(data.current_stage || 'cloning')
-        } else if (data.status === 'indexed' && !importStarted) {
-          // Start import phase
-          setImportStarted(true)
+        } else if (data.status === 'indexed') {
+          // Indexing complete (backend already imported issues as part of indexing)
           updateStageStatus('clone', 'completed')
           updateStageStatus('index', 'completed')
-          await startImport(mounted)
+          updateStageStatus('import', 'completed')
+          clearInterval(interval)
+          setTimeout(() => {
+            if (mounted) onComplete()
+          }, 1000)
         } else if (data.status === 'failed') {
           setError(data.error_message || 'Indexing failed')
           markStageError()
@@ -72,9 +74,9 @@ export default function IndexingTimeline({
       mounted = false
       clearInterval(interval)
     }
-  }, [projectId, importStarted, onError])
+  }, [projectId, onError])
 
-  function updateStagesFromBackend(currentStage: string) {
+  function updateStagesFromBackend(currentStage: string | null) {
     // Don't update if we're already in the import phase (prevents regression)
     const importStage = stages.find(s => s.id === 'import')
     if (importStage && (importStage.status === 'in_progress' || importStage.status === 'completed')) {
@@ -98,99 +100,15 @@ export default function IndexingTimeline({
         updateStageStatus('index', 'completed')
         updateStageStatus('import', 'in_progress')
         break
+      case null:
+      case undefined:
+        // Stage is null - backend has cleared it, meaning all stages complete
+        // But keep showing current state, don't reset
+        break
       default:
-        // Unknown stage or null, show first step as active
+        // Unknown stage, show first step as active
         updateStageStatus('clone', 'in_progress')
         break
-    }
-  }
-
-  async function startImport(mounted: boolean) {
-    if (!mounted) return
-
-    updateStageStatus('clone', 'completed')
-    updateStageStatus('index', 'completed')
-    updateStageStatus('import', 'in_progress')
-
-    try {
-      // Try to trigger import (might fail during reindex if already imported)
-      const res = await fetch(API_ENDPOINTS.importInitial(projectId), { method: 'POST' })
-
-      // If import fails, check if it's because issues already exist (during reindex)
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        console.log('[Import] Initial import returned error, checking sync status:', errorData)
-
-        // Check current sync status - might already be complete
-        const syncRes = await fetch(API_ENDPOINTS.syncStatus(projectId))
-        const syncData = await syncRes.json()
-
-        if (syncData.status === 'completed' || syncData.status === 'no_jobs') {
-          // Import already done (reindex case), mark as complete
-          console.log('[Import] Issues already imported, marking as complete')
-          updateStageStatus('import', 'completed')
-          setTimeout(() => {
-            if (mounted) onComplete()
-          }, 1000)
-          return
-        }
-        // If sync is still in progress, continue polling below
-      }
-
-      // Poll import status
-      const pollImport = setInterval(async () => {
-        if (!mounted) {
-          clearInterval(pollImport)
-          return
-        }
-
-        try {
-          const syncRes = await fetch(API_ENDPOINTS.syncStatus(projectId))
-          const syncData = await syncRes.json()
-
-          if (syncData.status === 'completed' || syncData.status === 'no_jobs') {
-            clearInterval(pollImport)
-            updateStageStatus('import', 'completed')
-            setTimeout(() => {
-              if (mounted) onComplete()
-            }, 1000) // Small delay for visual feedback
-          } else if (syncData.status === 'failed') {
-            clearInterval(pollImport)
-            const errorMsg = 'Failed to import issues'
-            setError(errorMsg)
-            updateStageStatus('import', 'error')
-            onError(errorMsg)
-          }
-        } catch (err) {
-          console.error('Import polling error:', err)
-        }
-      }, 3000)
-
-      // Cleanup function
-      return () => clearInterval(pollImport)
-    } catch (err) {
-      console.error('Import error:', err)
-      // Instead of failing, check if import is already done
-      try {
-        const syncRes = await fetch(API_ENDPOINTS.syncStatus(projectId))
-        const syncData = await syncRes.json()
-
-        if (syncData.status === 'completed' || syncData.status === 'no_jobs') {
-          updateStageStatus('import', 'completed')
-          setTimeout(() => {
-            if (mounted) onComplete()
-          }, 1000)
-          return
-        }
-      } catch (syncErr) {
-        console.error('Failed to check sync status:', syncErr)
-      }
-
-      // If we can't determine status, show error
-      const errorMsg = 'Failed to import issues'
-      setError(errorMsg)
-      updateStageStatus('import', 'error')
-      onError(errorMsg)
     }
   }
 
