@@ -37,7 +37,7 @@ When you analyze an issue, the system:
 
 The frontend is a Next.js dashboard with a sidebar showing repositories, main panel showing issues, and a triage modal for analyzing individual issues. Everything updates via polling (no websockets).
 
-![Main dashboard showing repository sidebar (left), issue list (center), and search bar (top)](./Main-screen.png)
+![Main dashboard showing repository sidebar (left), issue list (center), and search bar (top)](./images/Main-screen.png)
 
 ## Core components
 
@@ -103,7 +103,7 @@ make dev    # Starts backend (port 8000) + frontend (port 3000)
 
 Open http://localhost:3000, go to Settings, add your Anthropic API key. Optionally add GitHub token for higher rate limits.
 
-_// Screenshot: Settings modal showing Anthropic API key input (required) and GitHub token input (optional)_
+![Settings modal showing Anthropic API key input (required) and GitHub token input (optional)](./images/Setting-modal.png)
 
 **Dependencies:**
 
@@ -136,7 +136,7 @@ Database requires: PostgreSQL 15+ with `pgvector` extension enabled
    - Review draft response in "Draft response" section
    - Click "Copy" to copy response text, or "Post" to post directly to GitHub
 
-   ![Triage modal showing issue details (left pane), analysis results with category badge and reasoning (right pane), and draft response text below](./Triage-screen.png)
+   ![Triage modal showing issue details (left pane), analysis results with category badge and reasoning (right pane), and draft response text below](./images/Triage-screen.png)
 
 4. **Navigate between issues:**
    - Use Previous/Next buttons at bottom of triage modal

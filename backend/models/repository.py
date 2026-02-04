@@ -18,6 +18,8 @@ class StatusResponse(BaseModel):
     status: str
     error_message: Optional[str] = None
     indexed_at: Optional[str] = None
+    current_stage: Optional[str] = None
+    stage_started_at: Optional[str] = None
 
 
 class Repository(BaseModel):
@@ -29,3 +31,5 @@ class Repository(BaseModel):
     last_synced_at: Optional[str] = None
     error_message: Optional[str] = None
     last_error_at: Optional[str] = None
+    current_stage: Optional[str] = None
+    stage_started_at: Optional[str] = None

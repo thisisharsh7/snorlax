@@ -60,7 +60,9 @@ def update_repository_status(project_id: str, status: str, error_message: str = 
                    SET status = %s,
                        indexed_at = NOW(),
                        error_message = %s,
-                       last_error_at = NOW()
+                       last_error_at = NOW(),
+                       current_stage = NULL,
+                       stage_started_at = NULL
                    WHERE project_id = %s""",
                 (status, error_message, project_id)
             )
@@ -69,11 +71,34 @@ def update_repository_status(project_id: str, status: str, error_message: str = 
                 """UPDATE repositories
                    SET status = %s,
                        indexed_at = NOW(),
-                       error_message = NULL
+                       error_message = NULL,
+                       current_stage = NULL,
+                       stage_started_at = NULL
                    WHERE project_id = %s""",
                 (status, project_id)
             )
 
+        conn.commit()
+        cur.close()
+
+
+def update_repository_stage(project_id: str, stage: str):
+    """
+    Update the current indexing stage for a repository.
+
+    Args:
+        project_id: Project identifier
+        stage: Current stage ('cloning', 'indexing_code', 'importing_issues')
+    """
+    with get_db_connection_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """UPDATE repositories
+               SET current_stage = %s,
+                   stage_started_at = NOW()
+               WHERE project_id = %s""",
+            (stage, project_id)
+        )
         conn.commit()
         cur.close()
 

@@ -14,7 +14,6 @@ interface Stage {
 interface IndexingTimelineProps {
   projectId: string
   repoName: string
-  startTime?: number
   onComplete: () => void
   onError: (error: string) => void
 }
@@ -28,19 +27,16 @@ const STAGES: Omit<Stage, 'status'>[] = [
 export default function IndexingTimeline({
   projectId,
   repoName,
-  startTime: providedStartTime,
   onComplete,
   onError
 }: IndexingTimelineProps) {
   const [stages, setStages] = useState<Stage[]>(
     STAGES.map(s => ({ ...s, status: 'pending' as const }))
   )
-  // Use provided start time, or fall back to current time if not provided
-  const [startTime] = useState(providedStartTime || Date.now())
   const [error, setError] = useState<string | null>(null)
   const [importStarted, setImportStarted] = useState(false)
 
-  // Poll status and update stages
+  // Poll status and update stages based on backend current_stage
   useEffect(() => {
     let mounted = true
     const interval = setInterval(async () => {
@@ -51,14 +47,15 @@ export default function IndexingTimeline({
         if (!res.ok) throw new Error('Failed to fetch status')
 
         const data = await res.json()
-        const elapsed = (Date.now() - startTime) / 1000 // seconds
 
         if (data.status === 'indexing') {
-          // Time-based stage progression
-          updateStages(elapsed)
+          // Update stages based on backend current_stage
+          updateStagesFromBackend(data.current_stage || 'cloning')
         } else if (data.status === 'indexed' && !importStarted) {
           // Start import phase
           setImportStarted(true)
+          updateStageStatus('clone', 'completed')
+          updateStageStatus('index', 'completed')
           await startImport(mounted)
         } else if (data.status === 'failed') {
           setError(data.error_message || 'Indexing failed')
@@ -71,31 +68,40 @@ export default function IndexingTimeline({
       }
     }, 2000)
 
-    // Start with first stage active
-    updateStageStatus('clone', 'in_progress')
-
     return () => {
       mounted = false
       clearInterval(interval)
     }
-  }, [projectId, startTime, importStarted, onError])
+  }, [projectId, importStarted, onError])
 
-  function updateStages(elapsed: number) {
+  function updateStagesFromBackend(currentStage: string) {
     // Don't update if we're already in the import phase (prevents regression)
     const importStage = stages.find(s => s.id === 'import')
     if (importStage && (importStage.status === 'in_progress' || importStage.status === 'completed')) {
-      // Already in import phase, don't regress based on time
+      // Already in import phase, don't regress
       return
     }
 
-    if (elapsed < 10) {
-      updateStageStatus('clone', 'in_progress')
-    } else if (elapsed < 40) {
-      updateStageStatus('clone', 'completed')
-      updateStageStatus('index', 'in_progress')
-    } else {
-      updateStageStatus('clone', 'completed')
-      updateStageStatus('index', 'completed')
+    switch (currentStage) {
+      case 'cloning':
+        updateStageStatus('clone', 'in_progress')
+        updateStageStatus('index', 'pending')
+        updateStageStatus('import', 'pending')
+        break
+      case 'indexing_code':
+        updateStageStatus('clone', 'completed')
+        updateStageStatus('index', 'in_progress')
+        updateStageStatus('import', 'pending')
+        break
+      case 'importing_issues':
+        updateStageStatus('clone', 'completed')
+        updateStageStatus('index', 'completed')
+        updateStageStatus('import', 'in_progress')
+        break
+      default:
+        // Unknown stage or null, show first step as active
+        updateStageStatus('clone', 'in_progress')
+        break
     }
   }
 

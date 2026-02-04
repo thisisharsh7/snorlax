@@ -45,7 +45,6 @@ export default function Dashboard() {
     message: string
   } | null>(null)
   const [activelyIndexingProjects, setActivelyIndexingProjects] = useState<Set<string>>(new Set())
-  const [indexingStartTimes, setIndexingStartTimes] = useState<Map<string, number>>(new Map())
 
   // Ref for immediate race condition checking
   const syncingRef = useRef(false)
@@ -284,20 +283,12 @@ export default function Dashboard() {
           staleLookup.forEach(id => newSet.delete(id))
           return newSet
         })
-        setIndexingStartTimes(prev => {
-          const newMap = new Map(prev)
-          staleLookup.forEach(id => newMap.delete(id))
-          return newMap
-        })
       }
     }
   }, [repos, activelyIndexingProjects.size])
 
   async function handleIndexComplete(projectId: string) {
     console.log('📍 [DEBUG] Index complete callback received:', projectId)
-
-    // Record the actual start time for this project
-    setIndexingStartTimes(prev => new Map(prev).set(projectId, Date.now()))
 
     // Mark this project as actively indexing (includes import phase)
     setActivelyIndexingProjects(prev => new Set(prev).add(projectId))
@@ -343,13 +334,6 @@ export default function Dashboard() {
       return newSet
     })
 
-    // Remove the start time tracking
-    setIndexingStartTimes(prev => {
-      const newMap = new Map(prev)
-      newMap.delete(projectId)
-      return newMap
-    })
-
     // Refresh repositories to get the final status
     loadRepositories()
   }
@@ -385,7 +369,6 @@ export default function Dashboard() {
 
       // Set up tracking state (same as handleIndexComplete)
       console.log('[Re-index] Setting up tracking state')
-      setIndexingStartTimes(prev => new Map(prev).set(targetProjectId, Date.now()))
       setActivelyIndexingProjects(prev => new Set(prev).add(targetProjectId))
 
       // Refresh repository list to show updated status
@@ -596,7 +579,6 @@ export default function Dashboard() {
                 <IndexingTimeline
                   projectId={selectedRepo.project_id}
                   repoName={selectedRepo.repo_name}
-                  startTime={indexingStartTimes.get(selectedRepo.project_id)}
                   onComplete={() => {
                     console.log('Indexing complete, refreshing repositories')
                     handleIndexingComplete(selectedRepo.project_id)

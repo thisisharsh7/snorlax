@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from models.repository import IndexRequest, IndexResponse, StatusResponse, Repository
-from utils.database import get_db_connection, extract_repo_name, update_repository_status
+from utils.database import get_db_connection, extract_repo_name, update_repository_status, update_repository_stage
 from services.repo_cloner import RepoCloner
 from services.github.api import GitHubService
 from flows import create_flow_for_project
@@ -40,6 +40,7 @@ def index_repository(project_id: str, github_url: str):
         # Step 1: Clone repository with validation
         try:
             logger.info(f"[{project_id}] Cloning repository from {github_url}")
+            update_repository_stage(project_id, "cloning")
             repo_path = repo_cloner.clone_repo(github_url, project_id)
 
             if not os.path.exists(repo_path):
@@ -54,6 +55,7 @@ def index_repository(project_id: str, github_url: str):
         # Step 2: Create CocoIndex flow with validation
         try:
             logger.info(f"[{project_id}] Creating CocoIndex flow...")
+            update_repository_stage(project_id, "indexing_code")
             flow = create_flow_for_project(project_id, repo_path)
 
             if flow is None:
@@ -82,6 +84,7 @@ def index_repository(project_id: str, github_url: str):
         # Step 5: Sync issues from GitHub (NEW!)
         try:
             logger.info(f"[{project_id}] Syncing issues from GitHub...")
+            update_repository_stage(project_id, "importing_issues")
 
             # Get GitHub token from database
             conn = get_db_connection()
@@ -334,7 +337,7 @@ async def list_repositories():
         cur = conn.cursor()
         cur.execute(
             """SELECT repo_url, project_id, repo_name, indexed_at, status, last_synced_at,
-                      error_message, last_error_at
+                      error_message, last_error_at, current_stage, stage_started_at
                FROM repositories
                ORDER BY indexed_at DESC"""
         )
@@ -351,7 +354,9 @@ async def list_repositories():
                 status=row[4],
                 last_synced_at=str(row[5]) if row[5] else None,
                 error_message=row[6],
-                last_error_at=str(row[7]) if row[7] else None
+                last_error_at=str(row[7]) if row[7] else None,
+                current_stage=row[8],
+                stage_started_at=str(row[9]) if row[9] else None
             )
             for row in results
         ]
@@ -554,13 +559,13 @@ async def get_status(project_id: str):
         project_id: Project identifier
 
     Returns:
-        StatusResponse with current status
+        StatusResponse with current status and stage
     """
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT status, indexed_at FROM repositories WHERE project_id = %s",
+            "SELECT status, indexed_at, current_stage, stage_started_at FROM repositories WHERE project_id = %s",
             (project_id,)
         )
         result = cur.fetchone()
@@ -573,7 +578,9 @@ async def get_status(project_id: str):
         return StatusResponse(
             status=result[0],
             error_message=None,
-            indexed_at=str(result[1]) if result[1] else None
+            indexed_at=str(result[1]) if result[1] else None,
+            current_stage=result[2],
+            stage_started_at=str(result[3]) if result[3] else None
         )
     except HTTPException:
         raise
