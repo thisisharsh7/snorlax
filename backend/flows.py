@@ -3,6 +3,7 @@ CocoIndex flow definitions for code embedding and indexing.
 """
 
 import cocoindex
+from cocoindex.flow import flow_names, flow_by_name
 from cocoindex.sources import LocalFile
 from cocoindex.functions import (
     DetectProgrammingLanguage,
@@ -53,17 +54,29 @@ def code_to_embedding(
 
 def create_flow_for_project(project_id: str, repo_path: str):
     """
-    Dynamically create a CocoIndex flow for a specific project.
+    Create or reuse a CocoIndex flow for a specific project.
+    Handles reindex by closing existing flow first.
 
     Args:
         project_id: Unique identifier for the project
         repo_path: Path to the cloned repository
 
     Returns:
-        CocoIndex flow function
+        CocoIndex flow instance
     """
+    flow_name = f"flow_{project_id.replace('-', '_')}"
 
-    @cocoindex.flow_def(name=f"flow_{project_id.replace('-', '_')}")
+    # Check if flow already exists (reindex scenario)
+    if flow_name in flow_names():
+        print(f"✓ Flow '{flow_name}' already exists - closing for reindex")
+        try:
+            existing_flow = flow_by_name(flow_name)
+            existing_flow.close()
+            print(f"✓ Closed existing flow '{flow_name}'")
+        except Exception as e:
+            print(f"⚠ Could not close existing flow: {e}")
+
+    @cocoindex.flow_def(name=flow_name)
     def code_embedding_flow(
         flow_builder: cocoindex.FlowBuilder,
         data_scope: cocoindex.DataScope

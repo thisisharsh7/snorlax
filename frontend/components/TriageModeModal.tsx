@@ -147,6 +147,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
   const [currentIndex, setCurrentIndex] = useState(0)
   const [analysis, setAnalysis] = useState<TriageAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadingAnalysis, setLoadingAnalysis] = useState(false) // For checking if analysis exists
   const [analyzing, setAnalyzing] = useState(false)
   const [copiedResponse, setCopiedResponse] = useState<number | null>(null)
   const [analyzedIssues, setAnalyzedIssues] = useState<Map<number, TriageAnalysis>>(new Map())
@@ -187,10 +188,12 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
     async function loadIssues() {
       setAnalyzedIssues(new Map()) // Clear cache on open
+      setLoadingAnalysis(true) // Show loader while checking
 
       // If specific issue requested, try to load it first
       if (initialIssueNumber) {
         const hasAnalysis = await loadSavedAnalysis(initialIssueNumber)
+        setLoadingAnalysis(false) // Done checking
 
         if (hasAnalysis) {
           // Issue is categorized and we have its analysis
@@ -215,6 +218,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
       // Load uncategorized issues (default behavior)
       await loadIssuesWithTriage()
+      setLoadingAnalysis(false) // Done loading
     }
 
     loadIssues()
@@ -246,17 +250,21 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
     const issueNumber = issues[currentIndex].issue_number
 
-    // Clear current analysis
-    setAnalysis(null)
-
     // Check if already in cache
     if (analyzedIssues.has(issueNumber)) {
       setAnalysis(analyzedIssues.get(issueNumber)!)
+      setLoadingAnalysis(false)
       return
     }
 
+    // Clear current analysis and show loader
+    setAnalysis(null)
+    setLoadingAnalysis(true)
+
     // Try to load saved analysis from database
-    loadSavedAnalysis(issueNumber)
+    loadSavedAnalysis(issueNumber).finally(() => {
+      setLoadingAnalysis(false)
+    })
   }, [isOpen, currentIndex, issues])
 
   // Keyboard shortcuts - FIXED: Only depends on isOpen
@@ -681,7 +689,13 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
               {/* RIGHT: Analysis */}
               <div className="w-1/2 overflow-y-auto p-6">
-                {!analysis ? (
+                {loadingAnalysis ? (
+                  /* Loading state while checking for analysis */
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-300 dark:border-gray-700 border-t-blue-600 dark:border-t-blue-400 mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">Checking for existing analysis...</p>
+                  </div>
+                ) : !analysis ? (
                   <div className="flex flex-col items-center justify-center h-full px-8">
                     <div className="text-center mb-8 max-w-md">
                       <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 mb-4">

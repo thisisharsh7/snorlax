@@ -148,23 +148,23 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
               >
                 <button
                   type="button"
-                  onClick={() => repo.status === 'indexed' && onSelectRepo(repo.project_id)}
-                  disabled={repo.status !== 'indexed'}
+                  onClick={() => (repo.status === 'indexed' || repo.status === 'failed') && onSelectRepo(repo.project_id)}
+                  disabled={repo.status === 'indexing'}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2.5 ${
                     selectedProjectId === repo.project_id
                       ? 'bg-gray-200 dark:bg-gray-800'
                       : 'hover:bg-gray-150 dark:hover:bg-gray-850'
-                  } ${repo.status !== 'indexed' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                  } ${repo.status === 'indexing' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
-                  {/* Icon - Changes on hover for indexed repos */}
-                  {hoveredId === repo.project_id && repo.status === 'indexed' ? (
+                  {/* Icon - Changes on hover for indexed/failed repos */}
+                  {hoveredId === repo.project_id && (repo.status === 'indexed' || repo.status === 'failed') ? (
                     <div
                       onClick={(e) => {
                         e.stopPropagation()
                         onReindex(repo.project_id)
                       }}
                       className="p-0.5 hover:bg-gray-300 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0 cursor-pointer"
-                      title="Re-index code"
+                      title={repo.status === 'failed' ? 'Retry indexing' : 'Re-index code'}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -175,7 +175,7 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
                         }
                       }}
                     >
-                      <RefreshCw className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <RefreshCw className={`w-4 h-4 ${repo.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`} />
                     </div>
                   ) : (
                     <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />

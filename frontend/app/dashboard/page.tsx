@@ -497,6 +497,17 @@ export default function Dashboard() {
                     )}
                   </div>
                 )}
+
+                {/* Reindex Button for Failed Status */}
+                {selectedRepo.status === 'failed' && (
+                  <button
+                    onClick={() => handleReindex(selectedRepo.project_id)}
+                    className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Try Re-indexing
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from models.repository import IndexRequest, IndexResponse, StatusResponse, Repository
 from utils.database import get_db_connection, extract_repo_name, update_repository_status
 from services.repo_cloner import RepoCloner
+from services.github.api import GitHubService
 from flows import create_flow_for_project
 
 router = APIRouter(prefix="/api", tags=["repositories"])
@@ -76,7 +77,49 @@ def index_repository(project_id: str, github_url: str):
         except Exception as e:
             raise Exception(f"Flow update failed: {str(e)}")
 
-        # Step 5: Mark as complete with verification
+        # Step 5: Sync issues from GitHub (NEW!)
+        try:
+            logger.info(f"[{project_id}] Syncing issues from GitHub...")
+
+            # Get GitHub token from database
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT value FROM settings WHERE key = 'github_token'")
+            result = cur.fetchone()
+            github_token = result[0] if result else None
+            cur.close()
+            conn.close()
+
+            # Create GitHub service with token
+            github_service = GitHubService(github_token=github_token)
+
+            sync_result = github_service.import_issues(
+                project_id=project_id,
+                github_url=github_url,
+                limit=500  # Sync up to 500 new issues
+            )
+            logger.info(
+                f"[{project_id}] Issue sync completed: "
+                f"{sync_result.get('imported', 0)} new, "
+                f"{sync_result.get('updated', 0)} updated, "
+                f"sync_type: {sync_result.get('sync_type', 'unknown')}"
+            )
+
+            # Update last_synced_at timestamp so frontend knows to reload issues
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE repositories SET last_synced_at = NOW() WHERE project_id = %s",
+                (project_id,)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            # Don't fail the entire reindex if issue sync fails
+            logger.warning(f"[{project_id}] Issue sync failed (non-critical): {str(e)}")
+
+        # Step 6: Mark as complete with verification
         try:
             update_repository_status(project_id, "indexed")
             logger.info(f"[{project_id}] Status updated to 'indexed'")
@@ -213,7 +256,8 @@ async def index_repo(
 @router.post("/reindex/{project_id}")
 async def reindex_repository(project_id: str, background_tasks: BackgroundTasks):
     """
-    Re-index an existing repository to update embeddings when code changes.
+    Re-index an existing repository to update embeddings when code changes
+    AND sync new/updated issues from GitHub.
 
     Args:
         project_id: Project identifier
@@ -263,7 +307,7 @@ async def reindex_repository(project_id: str, background_tasks: BackgroundTasks)
 
         return {
             "status": "success",
-            "message": "Re-indexing started. Code embeddings will be updated."
+            "message": "Re-indexing started. Code embeddings and issues will be updated."
         }
 
     except HTTPException:

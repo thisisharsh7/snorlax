@@ -104,7 +104,15 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('open') // Changed default to 'open'
   // const [prFilter, setPrFilter] = useState<'all' | 'open' | 'closed' | 'merged'>('all') // DISABLED: PR functionality removed
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'duplicate' | 'implemented' | 'fixed_in_pr' | 'theme_cluster'>('all')
-  const [issues, setIssues] = useState<Issue[]>([])
+
+  // ✅ USE MAP INSTEAD OF ARRAY for O(1) lookups
+  const [issuesMap, setIssuesMap] = useState<Map<number, Issue>>(new Map())
+
+  // Convert Map to Array for display (sorted by created_at descending)
+  const issues = Array.from(issuesMap.values()).sort((a, b) => {
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
+
   // const [prs, setPrs] = useState<PullRequest[]>([]) // DISABLED: PR functionality removed
   const [categorizedIssues, setCategorizedIssues] = useState<CategorizedIssue[]>([])
   const [categoryStats, setCategoryStats] = useState<CategoryStats>({
@@ -177,7 +185,31 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
     return () => {
       controller.abort() // Cancel any pending requests on unmount
     }
-  }, [projectId, issueFilter])
+  }, [projectId, issueFilter, lastSyncedAt])
+
+  // ✅ Efficiently sync issues when reindex completes
+  useEffect(() => {
+    if (!isBackgroundSyncing) return
+
+    // When syncing starts, wait for it to complete then sync issues
+    const checkInterval = setInterval(async () => {
+      try {
+        const res = await fetch(API_ENDPOINTS.status(projectId))
+        const data = await res.json()
+
+        if (data.status === 'indexed') {
+          // Reindex completed - sync new issues efficiently
+          console.log('✓ Reindex completed - syncing new issues...')
+          await syncNewIssues()
+          clearInterval(checkInterval)
+        }
+      } catch (err) {
+        console.error('Failed to check reindex status:', err)
+      }
+    }, 3000) // Check every 3 seconds
+
+    return () => clearInterval(checkInterval)
+  }, [isBackgroundSyncing, projectId])
 
   async function checkGithubToken() {
     try {
@@ -244,18 +276,67 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
 
       const data = await res.json()
 
-      // Sort by created_at descending (newest first)
-      const sortedIssues = (data.issues || []).sort((a: Issue, b: Issue) => {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      // ✅ Convert array to Map for O(1) operations
+      const newMap = new Map<number, Issue>()
+      ;(data.issues || []).forEach((issue: Issue) => {
+        newMap.set(issue.number, issue)
       })
 
-      setIssues(sortedIssues)
+      setIssuesMap(newMap)
     } catch (e: any) {
       if (e.name === 'AbortError') return // Ignore aborted requests
       console.error('Failed to load issues:', e)
       setError(e.message || 'Failed to load issues. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function syncNewIssues() {
+    /**
+     * ✅ EFFICIENT: Only update Map with new/changed issues
+     * Preserves analyzed issues without re-fetching everything
+     */
+    try {
+      const stateParam = issueFilter === 'all' ? '' : `?state=${issueFilter}`
+      const res = await fetch(`${API_ENDPOINTS.githubIssues(projectId)}${stateParam}`)
+
+      if (!res.ok) {
+        console.error('Failed to sync issues')
+        return
+      }
+
+      const data = await res.json()
+
+      // Update Map with new/changed issues
+      setIssuesMap(prevMap => {
+        const newMap = new Map(prevMap) // Clone existing map
+        let newCount = 0
+        let updatedCount = 0
+
+        ;(data.issues || []).forEach((issue: Issue) => {
+          const existing = newMap.get(issue.number)
+
+          if (!existing) {
+            // NEW issue - add it
+            newMap.set(issue.number, issue)
+            newCount++
+          } else if (existing.updated_at !== issue.updated_at) {
+            // UPDATED issue - refresh data
+            newMap.set(issue.number, issue)
+            updatedCount++
+          }
+          // UNCHANGED issues are preserved automatically
+        })
+
+        if (newCount > 0 || updatedCount > 0) {
+          console.log(`✓ Synced: ${newCount} new, ${updatedCount} updated issues`)
+        }
+
+        return newMap
+      })
+    } catch (err) {
+      console.error('Failed to sync issues:', err)
     }
   }
 
@@ -812,30 +893,36 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                 <div
                   key={issue.number}
                   onClick={() => onOpenTriage(issue.number)}
-                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
                 >
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
                       window.open(issue.html_url, '_blank')
                     }}
-                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    className="absolute top-2.5 right-3 p-1.5 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
                     title="Open on GitHub"
                   >
                     <ExternalLink className="w-4 h-4" />
                   </button>
-                  <div className="flex items-start gap-3 pr-10">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStateColor(issue.state)} mt-1`}>
-                      {getStateIcon(issue.state)} {issue.state}
-                    </span>
+                  <div className="flex items-center gap-3 pr-10">
+                    {/* Only show state badge when viewing 'all' issues */}
+                    {issueFilter === 'all' && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStateColor(issue.state)}`}>
+                        {getStateIcon(issue.state)}
+                        <span className="capitalize">{issue.state}</span>
+                      </span>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-                        #{issue.number} {issue.title}
-                      </h3>
-                      <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
-                        <span>by {issue.author}</span>
-                        <span>{formatDate(issue.created_at)}</span>
-                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                          #{issue.number} {issue.title}
+                        </h3>
+                          <span className="text-gray-500 dark:text-gray-500">•</span>
+                          <span>by {issue.author}</span>
+                          <span className="text-gray-500 dark:text-gray-500">•</span>
+                          <span>{formatDate(issue.created_at)}</span>
+                        </div>
                       {/* Category Badge(s) - with confidence threshold */}
                       {categoryInfo && (() => {
                         const CONFIDENCE_THRESHOLD = 0.20; // 20% minimum
@@ -852,8 +939,8 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                           if (validCategories.length === 0) return null;
 
                           return (
-                            <div className="mt-2">
-                              <div className="flex flex-wrap gap-2">
+                            <div className="mt-1">
+                              <div className="flex flex-wrap gap-1.5">
                                 {validCategories.map((cat, idx) => (
                                   <span key={idx}>
                                     {getCategoryBadge(cat.category, cat.confidence)}
@@ -873,7 +960,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                           }
 
                           return (
-                            <div className="mt-2">
+                            <div className="mt-1">
                               {getCategoryBadge(filteredCat.category, filteredCat.confidence)}
                             </div>
                           );
@@ -884,7 +971,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                           if (confidence <= CONFIDENCE_THRESHOLD) return null;
 
                           return (
-                            <div className="mt-2">
+                            <div className="mt-1">
                               {getCategoryBadge(
                                 categoryInfo.primary_category || categoryInfo.category || '',
                                 confidence
