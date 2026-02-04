@@ -344,6 +344,7 @@ async def get_issues_with_triage(project_id: str, state: str = "open"):
                 gi.state,
                 gi.created_at,
                 gi.github_url,
+                gi.author,
                 -- Triage fields (will be NULL if not triaged)
                 ic.category,
                 ic.confidence,
@@ -380,29 +381,30 @@ async def get_issues_with_triage(project_id: str, state: str = "open"):
                 "body": row[2],
                 "state": row[3],
                 "created_at": str(row[4]),
-                "github_url": row[5]
+                "github_url": row[5],
+                "author": row[6]
             }
 
             # Check if this issue has triage data
-            has_triage = row[6] is not None or row[9] is not None  # category or decision exists
+            has_triage = row[7] is not None or row[10] is not None  # category or decision exists
 
             if has_triage:
                 # JSONB is already parsed by psycopg, no need for json.loads()
-                related_links = row[15] if row[15] else []
+                related_links = row[16] if row[16] else []
 
                 triage = {
-                    "primary_category": row[6],
-                    "confidence": row[7],
-                    "reasoning": row[8],
-                    "decision": row[9],
-                    "primary_message": row[10],
-                    "evidence_bullets": row[11] or [],
-                    "draft_response": row[12],
-                    "action_button_text": row[13],
-                    "action_button_style": row[14],
+                    "primary_category": row[7],
+                    "confidence": row[8],
+                    "reasoning": row[9],
+                    "decision": row[10],
+                    "primary_message": row[11],
+                    "evidence_bullets": row[12] or [],
+                    "draft_response": row[13],
+                    "action_button_text": row[14],
+                    "action_button_style": row[15],
                     "related_links": related_links,
-                    "related_prs": row[16] or [],
-                    "priority_score": row[17]
+                    "related_prs": row[17] or [],
+                    "priority_score": row[18]
                 }
 
                 # Transform draft_response into suggested_responses for frontend

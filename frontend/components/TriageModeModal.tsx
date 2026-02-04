@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Flame, Bug, Lightbulb, HelpCircle, Trash2, PartyPopper,
   XCircle, CheckCircle, Info, AlertTriangle, Ban, BookOpen, Check,
-  Search, Github, Link
+  Search, Github, Link, ExternalLink
 } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 import ReactMarkdown from 'react-markdown'
@@ -20,6 +20,8 @@ interface Issue {
   body: string
   state: string
   created_at: string
+  author?: string
+  html_url?: string
 }
 
 interface TriageAnalysis {
@@ -530,19 +532,33 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
               {/* LEFT: Issue Details */}
               <div className="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-6">
                 <div className="mb-4">
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                    #{currentIssue.issue_number}: {currentIssue.title}
-                  </h3>
-                  <div className="flex gap-2 text-sm text-gray-500">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white flex-1">
+                      #{currentIssue.issue_number}: {currentIssue.title}
+                    </h3>
+                    <button
+                      onClick={() => window.open(currentIssue.html_url, '_blank')}
+                      className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors flex-shrink-0"
+                      title="Open on GitHub"
+                    >
+                      <ExternalLink className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2 text-sm text-gray-500 dark:text-gray-400">
                     <span>State: {currentIssue.state}</span>
                     <span>•</span>
+                    {currentIssue.author && (
+                      <>
+                        <span className="text-blue-600 dark:text-blue-400 font-medium">by {currentIssue.author}</span>
+                        <span>•</span>
+                      </>
+                    )}
                     <span>Created: {new Date(currentIssue.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
 
                 {/* Issue body with truncation */}
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                  <h4 className="font-semibold mb-2 text-gray-900 dark:text-white text-sm">Description</h4>
                   <div className="text-sm text-gray-700 dark:text-gray-300 break-words overflow-x-auto">
                     <ReactMarkdown
                       rehypePlugins={[
@@ -986,24 +1002,22 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
             </div>
 
             {/* Footer: Navigation & Shortcuts */}
-            <div className="bg-gray-50 dark:bg-gray-800 px-6 py-4 flex justify-between items-center rounded-b-xl border-t border-gray-200 dark:border-gray-700">
+            <div className="bg-gray-50 dark:bg-gray-800 px-6 py-3 flex justify-between items-center rounded-b-xl border-t border-gray-200 dark:border-gray-700">
               <div className="flex gap-3 text-xs text-gray-600 dark:text-gray-400">
-                <span><kbd className="kbd">J</kbd> / <kbd className="kbd">K</kbd> Next/Prev</span>
-                <span><kbd className="kbd">1</kbd><kbd className="kbd">2</kbd><kbd className="kbd">3</kbd> Copy</span>
                 <span><kbd className="kbd">Esc</kbd> Exit</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={previousIssue}
                   disabled={currentIndex === 0}
-                  className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                  className="px-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                 >
                   ← Previous
                 </button>
                 <button
                   onClick={nextIssue}
                   disabled={currentIndex === issues.length - 1}
-                  className="px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md text-sm font-medium disabled:opacity-50 hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
+                  className="px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white rounded text-xs font-medium disabled:opacity-50 hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
                 >
                   Next →
                 </button>
