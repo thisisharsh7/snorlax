@@ -243,16 +243,8 @@ PostgreSQL 15+ with `pgvector` extension
 
 ---
 
-## Support the Project
+## Support the Developer
 
 If Snorlax saves you time, consider sponsoring:
 
 **[Sponsor this project →](https://github.com/sponsors/YOUR_USERNAME)**
-
-Sponsorships help cover API costs, infrastructure, and maintenance.
-
----
-
-**License:** MIT
-
-**Disclaimer:** This tool sends issue text and code snippets to external APIs (Anthropic for Claude, public sentence-transformer models). Do not use with confidential code unless you've reviewed and approved these integrations.
