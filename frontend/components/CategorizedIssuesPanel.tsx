@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { XCircle, CheckCircle2, Wrench, Package, HelpCircle } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Category {
@@ -200,18 +201,38 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
   }
 
   function getCategoryBadge(category: string, confidence: number) {
-    const badges: Record<string, { color: string; icon: string; label: string }> = {
-      duplicate: { color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', icon: '🔴', label: 'Duplicate' },
-      implemented: { color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: '✅', label: 'Implemented' },
-      fixed_in_pr: { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300', icon: '🔧', label: 'Fixed in PR' },
-      theme_cluster: { color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', icon: '📦', label: 'Theme' },
+    const badges: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
+      duplicate: {
+        color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+        icon: <XCircle className="w-3 h-3" />,
+        label: 'Duplicate'
+      },
+      implemented: {
+        color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+        icon: <CheckCircle2 className="w-3 h-3" />,
+        label: 'Implemented'
+      },
+      fixed_in_pr: {
+        color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+        icon: <Wrench className="w-3 h-3" />,
+        label: 'Fixed in PR'
+      },
+      theme_cluster: {
+        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+        icon: <Package className="w-3 h-3" />,
+        label: 'Theme'
+      },
     }
 
-    const badge = badges[category] || { color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: '⚪', label: category }
+    const badge = badges[category] || {
+      color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+      icon: <HelpCircle className="w-3 h-3" />,
+      label: category
+    }
 
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
-        <span>{badge.icon}</span>
+        {badge.icon}
         {badge.label}
         <span className="text-[10px] opacity-75">({Math.round(confidence * 100)}%)</span>
       </span>
@@ -370,9 +391,12 @@ export default function CategorizedIssuesPanel({ projectId, repoName }: Props) {
           <div className="space-y-6">
             {themeClusters.map((cluster) => (
               <div key={`theme-${cluster.theme_name}`} className="bg-white dark:bg-gray-900 rounded-lg border-2 border-purple-200 dark:border-purple-800 p-6">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                  📦 {cluster.theme_name}
-                </h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <Package className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                    {cluster.theme_name}
+                  </h3>
+                </div>
                 <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
                   {cluster.theme_description}
                 </p>

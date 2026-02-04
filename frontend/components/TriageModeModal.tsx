@@ -1,8 +1,16 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import {
+  Flame, Bug, Lightbulb, HelpCircle, Trash2, PartyPopper,
+  XCircle, CheckCircle, Info, AlertTriangle, Ban, BookOpen, Check,
+  Search, Github, Link
+} from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 import ReactMarkdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import rehypeRewrite from 'rehype-rewrite'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -68,32 +76,43 @@ interface TriageModeModalProps {
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  critical: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-800 dark:text-red-300', label: '🔥 Critical' },
-  bug: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-800 dark:text-orange-300', label: '🐛 Bug' },
-  feature_request: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-800 dark:text-blue-300', label: '💡 Feature Request' },
-  question: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-800 dark:text-purple-300', label: '❓ Question' },
-  low_priority: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-300', label: '🗑️ Low Priority' }
+  critical: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-800 dark:text-red-300', label: 'Critical' },
+  bug: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-800 dark:text-orange-300', label: 'Bug' },
+  feature_request: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-800 dark:text-blue-300', label: 'Feature Request' },
+  question: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-800 dark:text-purple-300', label: 'Question' },
+  low_priority: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-300', label: 'Low Priority' }
 }
 
 function CategoryBadge({ category }: { category: string }) {
+  const iconMap: Record<string, React.ReactNode> = {
+    critical: <Flame className="w-3 h-3" />,
+    bug: <Bug className="w-3 h-3" />,
+    feature_request: <Lightbulb className="w-3 h-3" />,
+    question: <HelpCircle className="w-3 h-3" />,
+    low_priority: <Trash2 className="w-3 h-3" />
+  }
+
   const colors = CATEGORY_COLORS[category] || { bg: 'bg-gray-100', text: 'text-gray-800', label: category }
+  const icon = iconMap[category]
+
   return (
-    <span className={`px-3 py-1 rounded-full text-sm font-medium ${colors.bg} ${colors.text}`}>
+    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${colors.bg} ${colors.text}`}>
+      {icon}
       {colors.label}
     </span>
   )
 }
 
 // Decision card configuration
-const DECISION_CONFIG: Record<string, { icon: string; color: string; bgColor: string; borderColor: string }> = {
-  CLOSE_DUPLICATE: { icon: '🔴', color: 'text-red-700 dark:text-red-300', bgColor: 'bg-red-50 dark:bg-red-900/20', borderColor: 'border-red-200 dark:border-red-800' },
-  CLOSE_FIXED: { icon: '🟢', color: 'text-green-700 dark:text-green-300', bgColor: 'bg-green-50 dark:bg-green-900/20', borderColor: 'border-green-200 dark:border-green-800' },
-  CLOSE_EXISTS: { icon: '🔵', color: 'text-blue-700 dark:text-blue-300', bgColor: 'bg-blue-50 dark:bg-blue-900/20', borderColor: 'border-blue-200 dark:border-blue-800' },
-  NEEDS_INVESTIGATION: { icon: '⚠️', color: 'text-orange-700 dark:text-orange-300', bgColor: 'bg-orange-50 dark:bg-orange-900/20', borderColor: 'border-orange-200 dark:border-orange-800' },
-  VALID_FEATURE: { icon: '💡', color: 'text-purple-700 dark:text-purple-300', bgColor: 'bg-purple-50 dark:bg-purple-900/20', borderColor: 'border-purple-200 dark:border-purple-800' },
-  NEEDS_INFO: { icon: '❓', color: 'text-yellow-700 dark:text-yellow-300', bgColor: 'bg-yellow-50 dark:bg-yellow-900/20', borderColor: 'border-yellow-200 dark:border-yellow-800' },
-  ANSWER_FROM_DOCS: { icon: '📚', color: 'text-teal-700 dark:text-teal-300', bgColor: 'bg-teal-50 dark:bg-teal-900/20', borderColor: 'border-teal-200 dark:border-teal-800' },
-  INVALID: { icon: '🚫', color: 'text-gray-700 dark:text-gray-300', bgColor: 'bg-gray-50 dark:bg-gray-800', borderColor: 'border-gray-200 dark:border-gray-700' }
+const DECISION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bgColor: string; borderColor: string }> = {
+  CLOSE_DUPLICATE: { icon: <XCircle className="w-10 h-10" />, color: 'text-red-700 dark:text-red-300', bgColor: 'bg-red-50 dark:bg-red-900/20', borderColor: 'border-red-200 dark:border-red-800' },
+  CLOSE_FIXED: { icon: <CheckCircle className="w-10 h-10" />, color: 'text-green-700 dark:text-green-300', bgColor: 'bg-green-50 dark:bg-green-900/20', borderColor: 'border-green-200 dark:border-green-800' },
+  CLOSE_EXISTS: { icon: <Info className="w-10 h-10" />, color: 'text-blue-700 dark:text-blue-300', bgColor: 'bg-blue-50 dark:bg-blue-900/20', borderColor: 'border-blue-200 dark:border-blue-800' },
+  NEEDS_INVESTIGATION: { icon: <AlertTriangle className="w-10 h-10" />, color: 'text-orange-700 dark:text-orange-300', bgColor: 'bg-orange-50 dark:bg-orange-900/20', borderColor: 'border-orange-200 dark:border-orange-800' },
+  VALID_FEATURE: { icon: <Lightbulb className="w-10 h-10" />, color: 'text-purple-700 dark:text-purple-300', bgColor: 'bg-purple-50 dark:bg-purple-900/20', borderColor: 'border-purple-200 dark:border-purple-800' },
+  NEEDS_INFO: { icon: <HelpCircle className="w-10 h-10" />, color: 'text-yellow-700 dark:text-yellow-300', bgColor: 'bg-yellow-50 dark:bg-yellow-900/20', borderColor: 'border-yellow-200 dark:border-yellow-800' },
+  ANSWER_FROM_DOCS: { icon: <BookOpen className="w-10 h-10" />, color: 'text-teal-700 dark:text-teal-300', bgColor: 'bg-teal-50 dark:bg-teal-900/20', borderColor: 'border-teal-200 dark:border-teal-800' },
+  INVALID: { icon: <Ban className="w-10 h-10" />, color: 'text-gray-700 dark:text-gray-300', bgColor: 'bg-gray-50 dark:bg-gray-800', borderColor: 'border-gray-200 dark:border-gray-700' }
 }
 
 const BUTTON_STYLES: Record<string, string> = {
@@ -507,7 +526,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
         ) : issues.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="text-6xl mb-4">🎉</div>
+              <PartyPopper className="w-16 h-16 mx-auto mb-4 text-green-500" />
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                 All caught up!
               </h3>
@@ -544,6 +563,22 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                   <h4 className="font-semibold mb-2 text-gray-900 dark:text-white text-sm">Description</h4>
                   <div className="text-sm text-gray-700 dark:text-gray-300 break-words overflow-x-auto">
                     <ReactMarkdown
+                      rehypePlugins={[
+                        rehypeRaw,
+                        rehypeSanitize,
+                        [rehypeRewrite, {
+                          rewrite: (node: any) => {
+                            if (node.type === 'element' && node.tagName === 'img') {
+                              node.properties = {
+                                ...node.properties,
+                                loading: 'lazy',
+                                className: 'max-w-full h-auto rounded-md my-2',
+                                style: 'display: block;'
+                              }
+                            }
+                          }
+                        }]
+                      ]}
                       components={{
                         p: ({ node, children, ...props }) => {
                           // Convert plain URLs to clickable links
@@ -606,19 +641,9 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                               {...props}
                               src={fixedSrc}
                               className="max-w-full h-auto rounded-md my-2"
-                              alt={props.alt || ''}
-                              crossOrigin="anonymous"
-                              referrerPolicy="no-referrer"
+                              alt={props.alt || 'Image'}
                               loading="lazy"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'block';
-                                target.style.padding = '1rem';
-                                target.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                                target.style.border = '1px dashed rgba(239, 68, 68, 0.5)';
-                                target.style.borderRadius = '0.375rem';
-                                target.alt = `❌ Image failed to load: ${props.alt || fixedSrc}`;
-                              }}
+                              style={{ display: 'block' }}
                             />
                           );
                         },
@@ -673,19 +698,19 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                       <div className="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
                         <ul className="space-y-2.5 text-sm text-gray-700 dark:text-gray-300">
                           <li className="flex items-start gap-2">
-                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                             <span>Drafts a response you can post as-is</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                             <span>Flags if this issue already exists</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                             <span>Explains whether action is required</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-green-600 dark:text-green-400 mt-0.5 font-bold">✔</span>
+                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                             <span>Links relevant code, docs, or PRs</span>
                           </li>
                         </ul>
@@ -721,7 +746,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                       // NEW FORMAT: Show enhanced decision card
                       <div className={`${DECISION_CONFIG[analysis.decision]?.bgColor} ${DECISION_CONFIG[analysis.decision]?.borderColor} border-2 rounded-lg p-5`}>
                         <div className="flex items-start gap-4">
-                          <div className="text-4xl">{DECISION_CONFIG[analysis.decision]?.icon}</div>
+                          <div>{DECISION_CONFIG[analysis.decision]?.icon}</div>
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
                               <h3 className={`text-lg font-bold ${DECISION_CONFIG[analysis.decision]?.color}`}>
@@ -777,11 +802,11 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                         <h4 className="font-semibold text-sm mb-3 text-gray-900 dark:text-white">Related Resources</h4>
                         <div className="space-y-2">
                           {analysis.related_links.map((link, i) => {
-                            const sourceIcons = {
-                              stackoverflow: '🔎',
-                              github: '🐙',
-                              docs: '📚',
-                              internal: '🔗'
+                            const sourceIcons: Record<string, React.ReactNode> = {
+                              stackoverflow: <Search className="w-4 h-4" />,
+                              github: <Github className="w-4 h-4" />,
+                              docs: <BookOpen className="w-4 h-4" />,
+                              internal: <Link className="w-4 h-4" />
                             }
                             return (
                               <a
@@ -791,7 +816,7 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
                               >
-                                <span>{sourceIcons[link.source] || '🔗'}</span>
+                                <span className="flex-shrink-0">{sourceIcons[link.source] || <Link className="w-4 h-4" />}</span>
                                 <span>{link.text}</span>
                               </a>
                             )
@@ -861,6 +886,22 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                               </div>
                               <div className="text-xs text-gray-600 dark:text-gray-400 break-words overflow-x-auto">
                                 <ReactMarkdown
+                                  rehypePlugins={[
+                                    rehypeRaw,
+                                    rehypeSanitize,
+                                    [rehypeRewrite, {
+                                      rewrite: (node: any) => {
+                                        if (node.type === 'element' && node.tagName === 'img') {
+                                          node.properties = {
+                                            ...node.properties,
+                                            loading: 'lazy',
+                                            className: 'max-w-full h-auto rounded-md my-1.5',
+                                            style: 'display: block;'
+                                          }
+                                        }
+                                      }
+                                    }]
+                                  ]}
                                   components={{
                                     p: ({ node, children, ...props }) => {
                                       // Convert plain URLs to clickable links
@@ -923,19 +964,9 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                                           {...props}
                                           src={fixedSrc}
                                           className="max-w-full h-auto rounded-md my-1.5"
-                                          alt={props.alt || ''}
-                                          crossOrigin="anonymous"
-                                          referrerPolicy="no-referrer"
+                                          alt={props.alt || 'Image'}
                                           loading="lazy"
-                                          onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            target.style.display = 'block';
-                                            target.style.padding = '0.5rem';
-                                            target.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                                            target.style.border = '1px dashed rgba(239, 68, 68, 0.5)';
-                                            target.style.borderRadius = '0.375rem';
-                                            target.alt = `❌ Image failed to load: ${props.alt || fixedSrc}`;
-                                          }}
+                                          style={{ display: 'block' }}
                                         />
                                       );
                                     },

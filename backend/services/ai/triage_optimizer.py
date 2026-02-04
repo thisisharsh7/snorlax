@@ -124,7 +124,7 @@ class TriageOptimizer:
                 "action_button_style": "danger",
                 "related_links": [{
                     "text": f"Original Issue #{duplicate['issue_number']}",
-                    "url": duplicate.get('github_url', f"#/issues/{duplicate['issue_number']}"),
+                    "url": f"{repo_url}/issues/{duplicate['issue_number']}" if repo_url else f"#/issues/{duplicate['issue_number']}",
                     "source": "github"
                 }],
                 "confidence": duplicate['similarity'],
@@ -453,18 +453,33 @@ Check the documentation for usage instructions. Let us know if you need help usi
             input_tokens = message.usage.input_tokens
             output_tokens = message.usage.output_tokens
 
-            # With caching, cached tokens cost 10% of normal
-            cached_tokens = getattr(message.usage, 'cache_read_input_tokens', 0)
-            billable_input = input_tokens - cached_tokens + (cached_tokens * 0.1)
+            # Prompt caching tokens
+            cache_read_tokens = getattr(message.usage, 'cache_read_input_tokens', 0)
+            cache_write_tokens = getattr(message.usage, 'cache_creation_input_tokens', 0)
 
-            input_cost = (billable_input / 1_000_000) * 3
+            # Calculate billable input tokens
+            # Regular input tokens (not cached)
+            regular_input = input_tokens - cache_read_tokens - cache_write_tokens
+
+            # Cache write tokens cost 1.25x base price (for 5-min ephemeral cache)
+            cache_write_cost = (cache_write_tokens / 1_000_000) * 3 * 1.25
+
+            # Cache read tokens cost 0.1x base price (10% of normal)
+            cache_read_cost = (cache_read_tokens / 1_000_000) * 3 * 0.1
+
+            # Regular input and output costs
+            regular_input_cost = (regular_input / 1_000_000) * 3
             output_cost = (output_tokens / 1_000_000) * 15
-            total_cost = input_cost + output_cost
+
+            total_cost = regular_input_cost + cache_write_cost + cache_read_cost + output_cost
 
             result['api_cost'] = {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "cached_tokens": cached_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_write_tokens": cache_write_tokens,
+                "input_cost_usd": round(regular_input_cost + cache_write_cost + cache_read_cost, 4),
+                "output_cost_usd": round(output_cost, 4),
                 "total_cost_usd": round(total_cost, 4)
             }
 

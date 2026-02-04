@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { API_ENDPOINTS } from '@/lib/config'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, FileText, Lightbulb } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import rehypeRewrite from 'rehype-rewrite'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -199,7 +202,7 @@ export default function PRTriageModeModal({ projectId, isOpen, onClose, initialP
         ) : prs.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="text-6xl mb-4">📝</div>
+              <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                 No pull requests found
               </h3>
@@ -283,6 +286,22 @@ export default function PRTriageModeModal({ projectId, isOpen, onClose, initialP
                   <h4 className="font-semibold mb-3 text-gray-900 dark:text-white text-sm">Description</h4>
                   <div className="text-sm text-gray-700 dark:text-gray-300 break-words overflow-x-auto">
                     <ReactMarkdown
+                      rehypePlugins={[
+                        rehypeRaw,
+                        rehypeSanitize,
+                        [rehypeRewrite, {
+                          rewrite: (node: any) => {
+                            if (node.type === 'element' && node.tagName === 'img') {
+                              node.properties = {
+                                ...node.properties,
+                                loading: 'lazy',
+                                className: 'max-w-full h-auto rounded-md my-2',
+                                style: 'display: block;'
+                              }
+                            }
+                          }
+                        }]
+                      ]}
                       components={{
                         p: ({ node, children, ...props }) => {
                           // Convert plain URLs to clickable links
@@ -358,9 +377,12 @@ export default function PRTriageModeModal({ projectId, isOpen, onClose, initialP
 
                 {/* Placeholder for future AI analysis */}
                 <div className="mt-6 p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <h4 className="font-semibold text-blue-900 dark:text-blue-300 mb-2">
-                    💡 AI Analysis Coming Soon
-                  </h4>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lightbulb className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    <h4 className="font-semibold text-blue-900 dark:text-blue-300">
+                      AI Analysis Coming Soon
+                    </h4>
+                  </div>
                   <p className="text-sm text-blue-700 dark:text-blue-400">
                     PR analysis features will include: code quality assessment, risk evaluation, review suggestions, and related issue detection.
                   </p>

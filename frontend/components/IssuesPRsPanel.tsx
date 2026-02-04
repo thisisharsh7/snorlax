@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, XCircle, CheckCircle2, Wrench, Package, Sparkles, FileText, Check, HelpCircle } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
@@ -458,9 +458,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   }
 
   function getStateIcon(state: string, merged: boolean = false) {
-    if (merged) return '✓'
-    if (state === 'open') return '○'
-    return '✓'
+    if (merged) return <Check className="w-3 h-3" />
+    if (state === 'open') return <div className="w-3 h-3 rounded-full border-2 border-current" />
+    return <Check className="w-3 h-3" />
   }
 
   // Filter issues based on category
@@ -484,18 +484,38 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   const displayIssues = getFilteredIssues()
 
   function getCategoryBadge(category: string, confidence: number) {
-    const badges: Record<string, { color: string; icon: string; label: string }> = {
-      duplicate: { color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', icon: '🔴', label: 'Duplicate' },
-      implemented: { color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: '✅', label: 'Implemented' },
-      fixed_in_pr: { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300', icon: '🔧', label: 'Fixed in PR' },
-      theme_cluster: { color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', icon: '📦', label: 'Theme' },
+    const badges: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
+      duplicate: {
+        color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+        icon: <XCircle className="w-3 h-3" />,
+        label: 'Duplicate'
+      },
+      implemented: {
+        color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+        icon: <CheckCircle2 className="w-3 h-3" />,
+        label: 'Implemented'
+      },
+      fixed_in_pr: {
+        color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+        icon: <Wrench className="w-3 h-3" />,
+        label: 'Fixed in PR'
+      },
+      theme_cluster: {
+        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+        icon: <Package className="w-3 h-3" />,
+        label: 'Theme'
+      },
     }
 
-    const badge = badges[category] || { color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: '⚪', label: category }
+    const badge = badges[category] || {
+      color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+      icon: <HelpCircle className="w-3 h-3" />,
+      label: category
+    }
 
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
-        <span>{badge.icon}</span>
+        {badge.icon}
         {badge.label}
         <span className="text-[10px] opacity-75">({Math.round(confidence * 100)}%)</span>
       </span>
@@ -633,29 +653,24 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               placeholder="Search issues semantically (e.g., 'authentication bugs', 'memory leaks')..."
               className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            {searchQuery && (
-              <button
-                onClick={handleClearSearch}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <button
+              onClick={handleClearSearch}
+              disabled={!searchQuery}
+              className={`absolute inset-y-0 right-0 pr-3 flex items-center transition-colors ${
+                searchQuery
+                  ? 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer'
+                  : 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {isSearching && (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
             )}
-            <button
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-              title="Search uses AI embeddings to find semantically similar issues, even if they use different words"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
           </div>
         </div>
         {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
@@ -691,12 +706,15 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                   Found {searchResults.length} results for "{searchQuery}"
                 </span>
                 {searchType && (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                     searchType === 'semantic'
                       ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
                       : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
                   }`}>
-                    {searchType === 'semantic' ? '🔮 Semantic Search' : '📝 Text Match'}
+                    {searchType === 'semantic'
+                      ? <><Sparkles className="w-3 h-3" /> Semantic Search</>
+                      : <><FileText className="w-3 h-3" /> Text Match</>
+                    }
                   </span>
                 )}
               </div>

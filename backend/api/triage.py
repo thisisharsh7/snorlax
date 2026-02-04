@@ -550,6 +550,13 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
         # Step 5: Use Claude AI with caching (TIER 3 - CHEAP)
         logger.info(f"[{project_id}] Using Claude AI with caching...")
 
+        # Fix GitHub URLs for similar issues and PRs using repo_url
+        if repo_url:
+            for issue in similar_issues[:3]:
+                issue['github_url'] = f"{repo_url}/issues/{issue['issue_number']}"
+            for pr in similar_prs[:3]:
+                pr['github_url'] = f"{repo_url}/pull/{pr['pr_number']}"
+
         context = {
             'similar_issues': similar_issues[:3],  # Only top 3
             'similar_prs': similar_prs[:3],
@@ -591,7 +598,7 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
                 project_id=project_id,
                 claude_cost=result['api_cost'].get('total_cost_usd', 0),
                 cache_hit=result.get('from_cache', False),
-                cached_tokens=result['api_cost'].get('cached_tokens', 0)
+                cached_tokens=result['api_cost'].get('cache_read_tokens', 0)
             )
 
         logger.info(f"[{project_id}] ✅ Analysis complete. Cost: ${result.get('api_cost', {}).get('total_cost_usd', 0):.4f}")

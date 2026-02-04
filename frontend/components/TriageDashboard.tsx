@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { Flame, Bug, Lightbulb, HelpCircle, Trash2, PartyPopper } from 'lucide-react'
 import { API_ENDPOINTS } from '@/lib/config'
 
 interface Issue {
@@ -54,7 +55,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 interface CategorySectionProps {
-  icon: string
+  icon: React.ReactNode
   title: string
   count: number
   issues: Issue[]
@@ -85,7 +86,7 @@ function CategorySection({
         } transition-colors`}
       >
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{icon}</span>
+          <div className="flex-shrink-0">{icon}</div>
           <div className="text-left">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
               {title}
@@ -331,29 +332,24 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
               placeholder="Search issues semantically (e.g., 'authentication bugs', 'memory leaks')..."
               className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            {searchQuery && (
-              <button
-                onClick={handleClearSearch}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <button
+              onClick={handleClearSearch}
+              disabled={!searchQuery}
+              className={`absolute inset-y-0 right-0 pr-3 flex items-center transition-colors ${
+                searchQuery
+                  ? 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer'
+                  : 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {isSearching && (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
             )}
-            <button
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-              title="Search uses AI embeddings to find semantically similar issues, even if they use different words"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
           </div>
         </div>
         {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
@@ -434,7 +430,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
           {/* No issues message */}
           {totalIssues === 0 && dashboardData.needs_triage_count === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="text-6xl mb-4">🎉</div>
+              <PartyPopper className="w-16 h-16 mx-auto mb-4 text-green-500" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 No issues to triage!
               </h3>
@@ -446,7 +442,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
             <div className="space-y-3">
               {/* Critical - Always expanded */}
               <CategorySection
-                icon="🔥"
+                icon={<Flame className="w-6 h-6 text-red-500" />}
                 title="Critical"
                 count={dashboardData.categories.critical.length}
                 issues={dashboardData.categories.critical}
@@ -456,7 +452,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
 
               {/* Bugs */}
               <CategorySection
-                icon="🐛"
+                icon={<Bug className="w-6 h-6 text-orange-500" />}
                 title="Bugs"
                 count={dashboardData.categories.bugs.length}
                 issues={dashboardData.categories.bugs}
@@ -466,7 +462,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
 
               {/* Feature Requests */}
               <CategorySection
-                icon="💡"
+                icon={<Lightbulb className="w-6 h-6 text-blue-500" />}
                 title="Feature Requests"
                 count={dashboardData.categories.feature_requests.length}
                 issues={dashboardData.categories.feature_requests}
@@ -476,7 +472,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
 
               {/* Questions */}
               <CategorySection
-                icon="❓"
+                icon={<HelpCircle className="w-6 h-6 text-purple-500" />}
                 title="Questions"
                 count={dashboardData.categories.questions.length}
                 issues={dashboardData.categories.questions}
@@ -486,7 +482,7 @@ export default function TriageDashboard({ projectId, onEnterTriageMode }: Triage
 
               {/* Low Priority */}
               <CategorySection
-                icon="🗑️"
+                icon={<Trash2 className="w-6 h-6 text-gray-500" />}
                 title="Low Priority"
                 count={dashboardData.categories.low_priority.length}
                 issues={dashboardData.categories.low_priority}
