@@ -1,267 +1,258 @@
 # Snorlax
 
-## What this project does
+## Screenshots
 
-Snorlax indexes your GitHub repository's source code and issues into a vector database, then uses semantic search and Claude AI to analyze incoming issues. When you analyze an issue, it runs four parallel searches (similar issues, related PRs, matching code, documentation), sends the results to Claude, and returns a categorization with draft response text you can copy or post directly to GitHub. The system optimizes costs by applying rule-based filters first (70% cost reduction) and caching AI responses for 7 days (90% reduction on cache hits), bringing the average cost to $0.003 per issue instead of $0.03.
+![Main Dashboard](./images/Main-screen.png)
+*Dashboard showing repository sidebar, issue list, and search*
 
-## When you should use this
+![Triage Modal](./images/Triage-screen.png)
+*Issue analysis with AI categorization and draft responses*
 
-- You maintain an open-source project with 20+ issues per month and struggle to keep up
-- You spend significant time finding duplicate issues or related PRs manually
-- You want semantic search across your codebase to answer "where is this implemented?"
-- You need draft responses to common issue types (duplicates, already-implemented, answered in docs)
-- You're willing to review AI suggestions before posting (this is not autonomous)
-- You have an Anthropic API key and are comfortable with ~$0.003-0.01 per analyzed issue
+![Settings](./images/Setting-modal.png)
+*API key configuration*
 
-## When you should NOT use this
+---
 
-- Your project receives fewer than 10 issues per month (manual triage is faster)
-- You need fully autonomous issue handling (this requires human review before posting)
-- You cannot tolerate occasional AI mistakes in categorization (confidence scores are shown but not perfect)
-- Your repository is private and you cannot share code with external APIs (embeddings are sent to sentence-transformers, issue text to Claude)
-- You need multi-language support beyond English (AI responses are English-only currently)
-- You want real-time GitHub integration (webhook support exists but requires manual setup; default is manual import)
-- Your codebase is primarily non-code (images, binaries, datasets) - indexing focuses on source code
+**AI-powered GitHub issue triage that finds duplicates, searches your codebase, and drafts responses—saving maintainers hours every week.**
 
-## How it works (high level)
+---
 
-When you add a repository, Snorlax clones it (shallow, depth=1), splits source files into 1000-byte chunks with 300-byte overlap, generates 384-dimensional embeddings using `sentence-transformers/all-MiniLM-L6-v2`, and stores them in PostgreSQL with pgvector indexes. It then imports issues and PRs from GitHub, generating embeddings for those as well using the same model to ensure comparability.
+## What It Does
 
-When you analyze an issue, the system:
-1. Checks cache for similar analysis (7-day TTL)
-2. Applies smart rules: 95%+ similarity = duplicate, exact code match = already exists (no Claude call)
-3. If rules don't match, runs 4 parallel vector similarity searches against stored embeddings
-4. Sends issue text + search results to Claude Sonnet 4.5
-5. Claude returns structured JSON with category, confidence, reasoning, evidence bullets, and draft response
-6. Results are displayed with copy/post buttons and stored in database for audit
+Snorlax indexes your repository's code and issues, then uses semantic search + Claude AI to analyze incoming issues. For each issue, it:
+- Finds similar issues and related PRs
+- Searches relevant code and documentation
+- Categorizes the issue (bug, feature, duplicate, etc.)
+- Drafts a response you can review and post
 
-The frontend is a Next.js dashboard with a sidebar showing repositories, main panel showing issues, and a triage modal for analyzing individual issues. Everything updates via polling (no websockets).
+**Cost:** ~$0.003 per issue (70% saved by smart rules, 90% saved by caching)
 
-![Main dashboard showing repository sidebar (left), issue list (center), and search bar (top)](./images/Main-screen.png)
+## When to Use
 
-## Core components
+**Good fit:**
+- You maintain OSS projects with 20+ issues/month
+- You spend time finding duplicates or related PRs manually
+- You need semantic search across your codebase
+- You want draft responses for common issue types
+- You're comfortable reviewing AI suggestions before posting (~$0.003-0.01 per issue)
 
-**Backend (FastAPI):**
-- `routers/` - API endpoints for repos, GitHub, settings, triage
-- `services/repo_cloner.py` - Git operations, shallow cloning
-- `services/github/api.py` - GitHub API client with retry logic and rate limit handling
-- `services/github/background_jobs.py` - Progressive issue/PR sync with priority queue
-- `services/ai/embeddings.py` - Embedding generation for issues using sentence-transformers
-- `services/ai/categorization.py` - Multi-search analysis and Claude integration
-- `services/ai/triage_optimizer.py` - Rule-based filtering and caching layer
-- `flows.py` - CocoIndex semantic indexing pipeline for source code
-- `database.py` - PostgreSQL connection with pgvector support
+**Not a fit:**
+- Fewer than 10 issues/month (manual triage is faster)
+- Need fully autonomous handling (this requires human review)
+- Private repos you can't share with external APIs
+- Non-English support needed (English-only currently)
 
-**Frontend (Next.js):**
-- `app/dashboard/page.tsx` - Main dashboard layout
-- `components/RepoSidebar.tsx` - Repository list and management
-- `components/IssuesPRsPanel.tsx` - Issue list with search and filtering
-- `components/TriageModeModal.tsx` - Individual issue analysis interface
-- `components/IndexModal.tsx` - Repository import dialog
-- `components/SettingsModal.tsx` - API key configuration
+## Quick Start
 
-**Database:**
-- `repositories` - Tracked repos with indexing status
-- `github_issues`, `github_pull_requests` - Synced GitHub data
-- `issue_embeddings` - 384-dim vectors with pgvector IVFFlat index
-- `embeddings_{project_id}` - Per-repo code chunk embeddings (CocoIndex tables)
-- `issue_categories` - AI analysis results with reasoning and suggested responses
-- `claude_response_cache` - 7-day cache to reduce API costs
-
-## Setup & requirements
-
-**Required:**
-- Docker Desktop (for PostgreSQL with pgvector)
-- Python 3.9+ with pip
-- Node.js 18+ with npm
-- Anthropic API key (get from https://console.anthropic.com/settings/keys)
-
-**Optional but recommended:**
-- GitHub Personal Access Token (increases rate limit from 60/hr to 5000/hr)
-
-**Environment:**
-
-Backend `.env` (created by `make setup`):
-```bash
-APP_DATABASE_URL=postgresql://snorlax:snorlax_password@localhost:5432/snorlax
-ADMIN_PASSWORD=your-admin-password  # Optional, for production deployments
-GITHUB_WEBHOOK_SECRET=your-secret   # Optional, only if using webhooks
-```
-
-Frontend `.env.local` (created by `make setup`):
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+**Requirements:**
+- Docker Desktop (PostgreSQL + pgvector)
+- Python 3.9+, Node.js 18+
+- Anthropic API key ([get here](https://console.anthropic.com/settings/keys))
 
 **Install:**
 ```bash
 git clone <your-repo-url>
 cd snorlax
 make setup  # Installs deps, creates .env files, starts database
-make dev    # Starts backend (port 8000) + frontend (port 3000)
+make dev    # Starts backend (8000) + frontend (3000)
 ```
 
-Open http://localhost:3000, go to Settings, add your Anthropic API key. Optionally add GitHub token for higher rate limits.
+**Configure:**
+1. Open http://localhost:3000
+2. Go to Settings → add Anthropic API key
+3. (Optional) Add GitHub token for higher rate limits
 
-![Settings modal showing Anthropic API key input (required) and GitHub token input (optional)](./images/Setting-modal.png)
+**Use:**
+1. Click "Add Repository" → paste GitHub URL → wait for indexing (30-120s)
+2. Click "Sync from GitHub" to import issues
+3. Click any issue → "Analyze issue" → review results → copy or post response
 
-**Dependencies:**
+## How It Works
 
-Backend requires: `fastapi`, `anthropic`, `pygithub`, `psycopg[binary,pool]`, `pgvector`, `cocoindex>=0.3.20`, `sentence-transformers`, `slowapi` (rate limiting)
+**Indexing:**
+- Clones repo, splits code into chunks, generates embeddings using `sentence-transformers/all-MiniLM-L6-v2`
+- Imports issues/PRs from GitHub, generates embeddings
+- Stores vectors in PostgreSQL with pgvector
 
-Frontend requires: `next@15`, `react@19`, `tailwindcss`, `lucide-react`, `react-markdown`
+**Analysis:**
+1. Check cache (7-day TTL)
+2. Apply rules: 95%+ similarity = duplicate, skip Claude (70% cost savings)
+3. Run 4 parallel vector searches (similar issues, PRs, code, docs)
+4. Send to Claude Sonnet 4.5 for categorization + draft response
+5. Display results with copy/post buttons
 
-Database requires: PostgreSQL 15+ with `pgvector` extension enabled
+**Key features:**
+- Semantic search across issues and code
+- Smart rules filter 70% of issues before AI analysis
+- 7-day response cache saves 90% on repeat queries
+- Manual review required before posting
 
-## Typical workflow
+## Contributing
 
-1. **Add repository:**
-   - Click "Add Repository" in sidebar
-   - Paste GitHub URL (e.g., `https://github.com/owner/repo`)
-   - Click "Index repository"
-   - Wait 30-120 seconds for cloning + embedding generation (progress shown)
+**Most valuable contributions:**
+- More smart rules to reduce AI calls
+- Better prompts for edge case accuracy
+- Internationalization support
+- GitHub integration improvements (webhooks, auto-labels)
+- Tests and documentation
 
-2. **Import issues:**
-   - Once indexed, click "Sync from GitHub" button
-   - System imports issues and PRs in priority order: open issues first, then open PRs, then closed
-   - Imports in batches of 100 with rate limit handling
-   - Progress indicator shows `imported/total`
+**How to contribute:**
+Fork → make changes → open PR. Include:
+- What changed and why
+- How you tested it
+- Screenshots for UI changes
 
-3. **Analyze an issue:**
-   - Click any issue in the main panel
-   - Triage modal opens showing issue details on left
-   - Click "Analyze issue" button on right
-   - Wait 5-10 seconds for analysis (parallel searches + Claude API call)
-   - Review decision card with category, reasoning, and evidence bullets
-   - Review draft response in "Draft response" section
-   - Click "Copy" to copy response text, or "Post" to post directly to GitHub
+Open issues for questions (tag: `question`), bugs (`bug`), or features (`enhancement`).
 
-   ![Triage modal showing issue details (left pane), analysis results with category badge and reasoning (right pane), and draft response text below](./images/Triage-screen.png)
+## Known Limitations
 
-4. **Navigate between issues:**
-   - Use Previous/Next buttons at bottom of triage modal
-   - Or use keyboard: `j`/`↓` for next, `k`/`↑` for previous, `Esc` to close
-
-5. **Search issues:**
-   - Use search bar at top of issues panel
-   - Enter query (e.g., "authentication bugs", "memory leaks")
-   - Semantic search returns ranked results with similarity scores
-   - Click result to open in triage modal
-
-6. **Re-index (if code changes):**
-   - Hover over repository in sidebar
-   - Click circular arrow icon to re-index
-   - Useful after major code refactors or when adding new files
-
-## AI usage (explicit and honest)
-
-**Where Claude is used:**
-
-1. **Issue categorization** - Analyzing issue text + search results to determine category (critical, bug, feature_request, question, low_priority). Cost: ~$0.005 per call.
-
-2. **Response generation** - Writing draft comment text based on category and context. Cost: included in above, ~2000 output tokens.
-
-3. **Priority scoring** - Assigning 0-100 priority based on keywords like "security", "crash", "blocking". Cost: part of same API call.
-
-**What Claude does NOT decide:**
-
-- Whether to post the response (you must click "Post" after reviewing)
-- Issue closure (you must close manually on GitHub)
-- Labels or milestones (not modified)
-- Assignment or triage state (not touched)
-
-**Where AI is NOT used:**
-
-1. **Duplicate detection** - Uses vector similarity (cosine distance) with 95% threshold. No LLM needed for mathematical comparison.
-
-2. **Code search** - Semantic search via embeddings, not AI. Finds code chunks with >75% similarity to issue description.
-
-3. **Related issues/PRs** - Vector search with >85% similarity threshold. Deterministic, instant, free.
-
-4. **Rule-based routing** - 70% of issues match smart rules (e.g., FAQ patterns, exact duplicates) and skip Claude entirely.
-
-**Failure handling:**
-
-- If Claude API times out (rare), you see "Analysis failed" with retry button
-- If confidence is below 60%, the system shows "Low confidence" warning in UI
-- If no similar issues/code found, Claude still provides analysis but notes "limited context"
-- All API errors are logged to console for debugging
-- Cache misses trigger fresh Claude calls; cache hits return instantly
-
-**Cost transparency:**
-
-- Each analysis displays estimated cost in UI (typically $0.003-0.01)
-- Cache hits show "Cost saved: $X" badge
-- Dashboard shows cumulative daily costs (if you implement tracking endpoint)
-- Smart rules reduce costs by 70% (no Claude call needed)
-- 7-day cache reduces remaining calls by 90%
-
-**Model specifics:**
-
-- Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions, MIT license, runs locally)
-- LLM: `claude-sonnet-4-5-20250929` (Anthropic API, 200K context window)
-- Temperature: 0.3 (focused, consistent outputs)
-- Max tokens: 4000 output
-- Prompt: Structured JSON schema with strict output format
-
-## Project status & contribution notes
-
-**Current maturity:** Alpha / early production
-
-This project works and is used by maintainers for real triage, but expect rough edges:
-- Error messages could be clearer
-- No undo for posted comments (you must delete manually on GitHub)
-- Search UI is functional but basic
+- GitHub.com only (no Enterprise support)
+- Must reindex entire repo on code changes (no incremental indexing)
+- No monorepo support (indexes entire repo as one project)
+- English responses only
 - No bulk operations (analyze one issue at a time)
-- No GitHub webhook delivery verification (accepts all POST requests)
-
-**Where contributions are most valuable:**
-
-1. **Cost optimization** - More smart rules to reduce Claude calls further
-2. **Better prompts** - Improve categorization accuracy for edge cases
-3. **Internationalization** - Support for non-English issues and responses
-4. **GitHub integration** - Better webhook handling, auto-label application, issue templates
-5. **Search improvements** - Filter by labels, date ranges, author
-6. **Analytics** - Cost tracking dashboard, categorization accuracy metrics
-7. **Tests** - Unit tests for core services, integration tests for API endpoints
-8. **Documentation** - API docs, deployment guides, architecture diagrams
-
-**Known limitations:**
-
-- No support for GitHub Enterprise (only public GitHub.com)
-- No incremental code indexing (must reindex entire repo on changes)
-- No support for monorepos (indexes entire repo as single project)
-- No integration with GitHub Projects, Actions, or other tools
-- Response drafts are English-only
-- Cannot analyze issues without source code context (works best with code-related issues)
-
-**Contributing:**
-
-Fork, make changes, open PR. No CLA required. Please include:
-- Description of what changed and why
-- Any new dependencies added (explain necessity)
-- How you tested the change
-- Screenshots if UI changes
-
-**Questions?** Open an issue. Tag as `question` for setup help, `bug` for errors, `enhancement` for feature requests.
+- No undo for posted comments (delete manually on GitHub)
 
 ---
 
-## Support the project
+<details>
+<summary><strong>Technical Details</strong></summary>
 
-If this tool saves you time triaging issues, consider supporting its development:
+### Architecture
+
+**Backend (FastAPI):**
+- `routers/` - API endpoints for repos, GitHub, settings, triage
+- `services/repo_cloner.py` - Shallow git cloning (depth=1)
+- `services/github/api.py` - GitHub API client with retry + rate limiting
+- `services/ai/embeddings.py` - sentence-transformers integration
+- `services/ai/categorization.py` - Multi-search analysis + Claude
+- `services/ai/triage_optimizer.py` - Rule-based filtering + caching
+- `flows.py` - CocoIndex semantic indexing pipeline
+- `database.py` - PostgreSQL + pgvector connection
+
+**Frontend (Next.js):**
+- `app/dashboard/page.tsx` - Main dashboard
+- `components/RepoSidebar.tsx` - Repository management
+- `components/IssuesPRsPanel.tsx` - Issue list with search
+- `components/TriageModeModal.tsx` - Issue analysis UI
+- `components/IndexModal.tsx` - Repository import dialog
+- `components/SettingsModal.tsx` - API key config
+
+**Database:**
+- `repositories` - Tracked repos with indexing status
+- `github_issues`, `github_pull_requests` - Synced GitHub data
+- `issue_embeddings` - 384-dim vectors with pgvector IVFFlat index
+- `embeddings_{project_id}` - Per-repo code chunk embeddings
+- `issue_categories` - AI analysis results
+- `claude_response_cache` - 7-day response cache
+
+### AI Models
+
+**Embeddings:**
+- Model: `sentence-transformers/all-MiniLM-L6-v2`
+- Dimensions: 384
+- License: MIT (runs locally)
+- Use: Semantic similarity search
+
+**LLM:**
+- Model: `claude-sonnet-4-5-20250929`
+- Context: 200K tokens
+- Temperature: 0.3 (focused outputs)
+- Max output: 4000 tokens
+- Cost: ~$0.005 per analysis (before optimizations)
+
+### Cost Optimization
+
+**Smart rules (70% savings):**
+- 95%+ similarity → duplicate (no Claude call)
+- Exact code match → already exists
+- FAQ pattern match → standard response
+
+**Response cache (90% savings on hits):**
+- 7-day TTL on similar analyses
+- Cache key: issue embedding + search results hash
+- Average cost after optimization: **$0.003 per issue** (vs $0.03 raw)
+
+**Cost breakdown:**
+- Input tokens: ~1500 (issue + search results)
+- Output tokens: ~2000 (categorization + draft)
+- Per-call cost: ~$0.005
+- After rules: ~$0.0015 average
+- After cache: ~$0.003 average
+
+### Chunking & Indexing
+
+**Code chunking:**
+- 1000 bytes per chunk
+- 300 bytes overlap
+- Language-aware splitting (CocoIndex)
+- ~500-2000 chunks per medium repo
+
+**Similarity thresholds:**
+- Duplicate issues: 95%+ cosine similarity
+- Related PRs: 85%+
+- Code matches: 75%+
+- Documentation: 70%+
+
+### Environment Variables
+
+**Backend `.env`:**
+```bash
+APP_DATABASE_URL=postgresql://snorlax:snorlax_password@localhost:5432/snorlax
+ADMIN_PASSWORD=your-password  # Optional, for production
+GITHUB_WEBHOOK_SECRET=secret  # Optional, webhooks only
+```
+
+**Frontend `.env.local`:**
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+### Dependencies
+
+**Backend:**
+`fastapi`, `anthropic`, `pygithub`, `psycopg[binary,pool]`, `pgvector`, `cocoindex>=0.3.20`, `sentence-transformers`, `slowapi`
+
+**Frontend:**
+`next@15`, `react@19`, `tailwindcss`, `lucide-react`, `react-markdown`
+
+**Database:**
+PostgreSQL 15+ with `pgvector` extension
+
+### Where Claude Is (and Isn't) Used
+
+**Claude is used for:**
+1. Issue categorization (critical, bug, feature, question, low_priority)
+2. Draft response generation
+3. Priority scoring (0-100)
+
+**Claude is NOT used for:**
+- Duplicate detection (vector similarity)
+- Code search (embedding similarity)
+- Related issues/PRs (vector search)
+- Rule-based routing (70% of issues)
+
+**Failure handling:**
+- API timeout → "Analysis failed" + retry button
+- Low confidence (<60%) → warning shown
+- No context found → Claude notes "limited context"
+- Cache misses → fresh API call
+- Errors logged to console
+
+</details>
+
+---
+
+## Support the Project
+
+If Snorlax saves you time, consider sponsoring:
 
 **[Sponsor this project →](https://github.com/sponsors/YOUR_USERNAME)**
 
-Sponsorships help cover:
-- API costs for testing and development
-- Infrastructure for running the public demo
-- Time spent on maintenance and improvements
-
-All sponsorship tiers are appreciated. Even small contributions help sustain open-source work.
+Sponsorships help cover API costs, infrastructure, and maintenance.
 
 ---
 
-**License:** MIT (see LICENSE file)
+**License:** MIT
 
-**Disclaimer:** This tool sends issue text and code snippets to external APIs (Anthropic for Claude, public sentence-transformer models). Do not use with confidential or proprietary code unless you have reviewed and approved these integrations.
+**Disclaimer:** This tool sends issue text and code snippets to external APIs (Anthropic for Claude, public sentence-transformer models). Do not use with confidential code unless you've reviewed and approved these integrations.
