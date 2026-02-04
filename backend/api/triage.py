@@ -469,8 +469,9 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
 
         issue['project_id'] = project_id
 
-        # Get repository URL for building GitHub links
+        # Get repository URL and GitHub token
         repo_url = None
+        github_token = None
         try:
             conn = get_db_connection()
             cur = conn.cursor()
@@ -478,10 +479,17 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
             result = cur.fetchone()
             if result:
                 repo_url = result[0]
+
+            # Get GitHub token for fetching referenced links
+            cur.execute("SELECT value FROM settings WHERE key = 'github_token'")
+            token_result = cur.fetchone()
+            if token_result:
+                github_token = token_result[0]
+
             cur.close()
             conn.close()
         except Exception as e:
-            logger.warning(f"[{project_id}] Could not fetch repo URL: {e}")
+            logger.warning(f"[{project_id}] Could not fetch repo URL/token: {e}")
 
         # Step 2: Run similarity searches (free/cheap)
         logger.info(f"[{project_id}] Running similarity searches...")
@@ -563,7 +571,8 @@ async def analyze_issue_for_triage(request: Request, project_id: str, issue_numb
             'code_matches': code_matches[:3],
             'doc_links': doc_links[:3],
             'stackoverflow': stackoverflow_results,
-            'github_issues': github_results
+            'github_issues': github_results,
+            'github_token': github_token  # For fetching referenced GitHub links
         }
 
         result = triage_optimizer.analyze_with_claude_optimized(issue, context)

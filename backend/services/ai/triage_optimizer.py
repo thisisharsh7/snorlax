@@ -424,6 +424,109 @@ Check the documentation for usage instructions. Let us know if you need help usi
 
         return valid_urls[:max_images]
 
+    def _extract_github_links(self, text: str, max_links: int = 5) -> list:
+        """Extract GitHub URLs from markdown/plain text."""
+        import re
+
+        github_urls = []
+
+        # Pattern for GitHub URLs (issues, PRs, discussions, blob/files)
+        github_pattern = r'https?://(?:www\.)?github\.com/([^/\s]+)/([^/\s]+)/(issues|pull|discussions|blob)/([^\s\)>\]#]+)'
+
+        matches = re.findall(github_pattern, text, re.IGNORECASE)
+
+        for owner, repo, link_type, path in matches:
+            url = f"https://github.com/{owner}/{repo}/{link_type}/{path.split('#')[0]}"
+            github_urls.append({
+                'url': url,
+                'owner': owner,
+                'repo': repo,
+                'type': link_type,
+                'path': path.split('#')[0]
+            })
+
+        # Remove duplicates and limit
+        unique_links = []
+        seen_urls = set()
+        for link in github_urls:
+            if link['url'] not in seen_urls:
+                unique_links.append(link)
+                seen_urls.add(link['url'])
+                if len(unique_links) >= max_links:
+                    break
+
+        return unique_links
+
+    def _extract_non_github_links(self, text: str, max_links: int = 5) -> list:
+        """Extract non-GitHub URLs from text."""
+        import re
+
+        # Pattern for any HTTP/HTTPS URL
+        url_pattern = r'https?://[^\s\)>\]"]+'
+        all_urls = re.findall(url_pattern, text, re.IGNORECASE)
+
+        # Filter out GitHub URLs and image URLs
+        non_github_urls = []
+        for url in all_urls:
+            if 'github.com' not in url.lower() and not any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                non_github_urls.append(url)
+
+        # Remove duplicates and limit
+        unique_urls = list(dict.fromkeys(non_github_urls))[:max_links]
+        return unique_urls
+
+    def _fetch_github_link_content(self, link: dict, github_token: str = None) -> str:
+        """Fetch content from a GitHub link using GitHub API."""
+        try:
+            from github import Github
+
+            # Initialize GitHub client
+            github_client = Github(github_token) if github_token else Github()
+
+            owner = link['owner']
+            repo_name = link['repo']
+            link_type = link['type']
+            path = link['path']
+
+            repo = github_client.get_repo(f"{owner}/{repo_name}")
+
+            if link_type == 'issues':
+                # Fetch issue
+                issue_number = int(path)
+                issue = repo.get_issue(issue_number)
+                return f"📎 **Referenced Issue #{issue_number}: {issue.title}**\n{issue.body[:1000] if issue.body else 'No description'}"
+
+            elif link_type == 'pull':
+                # Fetch PR
+                pr_number = int(path)
+                pr = repo.get_pull(pr_number)
+                return f"📎 **Referenced PR #{pr_number}: {pr.title}**\n{pr.body[:1000] if pr.body else 'No description'}"
+
+            elif link_type == 'discussions':
+                # Discussions don't have simple API access
+                return f"📎 **Referenced Discussion:** {link['url']}"
+
+            elif link_type == 'blob':
+                # Fetch file content
+                file_path_parts = path.split('/')
+                if len(file_path_parts) > 1:
+                    branch = file_path_parts[0]
+                    file_path = '/'.join(file_path_parts[1:])
+
+                    try:
+                        file_content = repo.get_contents(file_path, ref=branch)
+                        if hasattr(file_content, 'decoded_content') and file_content.size < 50000:
+                            content = file_content.decoded_content.decode('utf-8')
+                            return f"📎 **Referenced File: {file_path}**\n```\n{content[:1500]}\n```"
+                    except:
+                        pass
+
+            return None
+
+        except Exception as e:
+            print(f"⚠️  Failed to fetch GitHub link {link.get('url')}: {e}")
+            return None
+
     def analyze_with_claude_optimized(
         self,
         issue: Dict,
@@ -454,6 +557,36 @@ Check the documentation for usage instructions. Let us know if you need help usi
 
         # Extract images from issue body
         image_urls = self._extract_image_urls(issue.get('body', ''))
+
+        # Extract and fetch GitHub links from issue body
+        github_links = self._extract_github_links(issue.get('body', ''))
+        github_content = []
+        if github_links:
+            # Get GitHub token from context or environment
+            github_token = context.get('github_token') or None
+            print(f"🔗 Found {len(github_links)} GitHub link(s) in issue #{issue.get('issue_number')} - fetching content")
+
+            for link in github_links:
+                content = self._fetch_github_link_content(link, github_token)
+                if content:
+                    github_content.append(content)
+
+        # Extract non-GitHub links (just list them)
+        other_links = self._extract_non_github_links(issue.get('body', ''))
+
+        # Add link context to prompt
+        if github_content or other_links:
+            link_context = "\n\n## Referenced Links\n"
+
+            if github_content:
+                link_context += "\n".join(github_content)
+
+            if other_links:
+                link_context += "\n\n⚠️ **User also referenced external links:**\n"
+                for url in other_links:
+                    link_context += f"- {url}\n"
+
+            prompt += link_context
 
         if image_urls:
             print(f"🖼️  Found {len(image_urls)} image(s) in issue #{issue.get('issue_number')} - analyzing with vision")
