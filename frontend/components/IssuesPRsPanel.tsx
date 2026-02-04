@@ -533,9 +533,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   }
 
   function getStateColor(state: string, merged: boolean = false) {
-    if (merged) return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-    if (state === 'open') return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-    return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+    if (merged) return 'bg-accent-purple-50 text-accent-purple-600 dark:bg-accent-purple-900/20 dark:text-accent-purple-300'
+    if (state === 'open') return 'bg-accent-green-50 text-accent-green-600 dark:bg-accent-green-900/20 dark:text-accent-green-300'
+    return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
   }
 
   function getStateIcon(state: string, merged: boolean = false) {
@@ -567,35 +567,35 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   function getCategoryBadge(category: string, confidence: number) {
     const badges: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
       duplicate: {
-        color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+        color: 'bg-accent-red-50 text-accent-red-600 dark:bg-accent-red-900/20 dark:text-accent-red-300',
         icon: <XCircle className="w-3 h-3" />,
         label: 'Duplicate'
       },
       implemented: {
-        color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+        color: 'bg-accent-green-50 text-accent-green-600 dark:bg-accent-green-900/20 dark:text-accent-green-300',
         icon: <CheckCircle2 className="w-3 h-3" />,
         label: 'Implemented'
       },
       fixed_in_pr: {
-        color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+        color: 'bg-accent-blue-50 text-accent-blue-600 dark:bg-accent-blue-900/20 dark:text-accent-blue-300',
         icon: <Wrench className="w-3 h-3" />,
         label: 'Fixed in PR'
       },
       theme_cluster: {
-        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+        color: 'bg-accent-purple-50 text-accent-purple-600 dark:bg-accent-purple-900/20 dark:text-accent-purple-300',
         icon: <Package className="w-3 h-3" />,
         label: 'Theme'
       },
     }
 
     const badge = badges[category] || {
-      color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+      color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
       icon: <HelpCircle className="w-3 h-3" />,
       label: category
     }
 
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${badge.color}`}>
         {badge.icon}
         {badge.label}
         <span className="text-[10px] opacity-75">({Math.round(confidence * 100)}%)</span>
@@ -604,7 +604,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
   }
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 overflow-hidden flex flex-col bg-neutral-50 dark:bg-neutral-900">
       {/* DISABLED: Header with Categorize Button and Tabs removed for first version */}
 
       {/* DISABLED: Category Filter Tabs - removed for first version */}
@@ -719,11 +719,11 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
       )}
 
       {/* Semantic Search Bar */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4">
+      <div className="bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-6 py-3">
         <div className="flex items-center gap-3">
           <div className="flex-1 relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
@@ -731,19 +731,19 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search issues semantically (e.g., 'authentication bugs', 'memory leaks')..."
-              className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Search issues…"
+              className="w-full pl-9 pr-9 py-1.5 text-base border border-neutral-300 dark:border-neutral-700 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-accent-blue-400 focus:border-accent-blue-400 transition-shadow"
             />
             <button
               onClick={handleClearSearch}
               disabled={!searchQuery}
               className={`absolute inset-y-0 right-0 pr-3 flex items-center transition-colors ${
                 searchQuery
-                  ? 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer'
-                  : 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+                  ? 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer'
+                  : 'text-neutral-300 dark:text-neutral-700 cursor-not-allowed'
               }`}
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -812,14 +812,14 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                 <div
                   key={result.issue_number}
                   onClick={() => onOpenTriage(result.issue_number)}
-                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+                  className="relative block bg-white dark:bg-neutral-900 rounded-md border border-neutral-200 dark:border-neutral-800 px-4 py-3.5 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm transition-all cursor-pointer"
                 >
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
                       window.open(result.github_url, '_blank')
                     }}
-                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    className="absolute top-3.5 right-4 p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                     title="Open on GitHub"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -827,7 +827,7 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                   <div className="flex items-start gap-3 pr-10">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
                           #{result.issue_number} {result.title}
                         </h3>
                         {result.similarity !== null && (
@@ -893,14 +893,14 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                 <div
                   key={issue.number}
                   onClick={() => onOpenTriage(issue.number)}
-                  className="relative block bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+                  className="relative block bg-white dark:bg-neutral-900 rounded-md border border-neutral-200 dark:border-neutral-800 px-4 py-3.5 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm transition-all cursor-pointer"
                 >
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
                       window.open(issue.html_url, '_blank')
                     }}
-                    className="absolute top-2.5 right-3 p-1.5 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                    className="absolute top-3.5 right-3 p-1.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                     title="Open on GitHub"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -915,13 +915,13 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
                           #{issue.number} {issue.title}
                         </h3>
-                          <span className="text-gray-500 dark:text-gray-500">•</span>
-                          <span>by {issue.author}</span>
-                          <span className="text-gray-500 dark:text-gray-500">•</span>
-                          <span>{formatDate(issue.created_at)}</span>
+                          <span className="text-neutral-400 dark:text-neutral-500">•</span>
+                          <span className="text-sm text-neutral-500 dark:text-neutral-400">by {issue.author}</span>
+                          <span className="text-neutral-400 dark:text-neutral-500">•</span>
+                          <span className="text-sm text-neutral-500 dark:text-neutral-400">{formatDate(issue.created_at)}</span>
                         </div>
                       {/* Category Badge(s) - with confidence threshold */}
                       {categoryInfo && (() => {
@@ -981,9 +981,9 @@ export default function IssuesPRsPanel({ projectId, repoName, lastSyncedAt, onIm
                         }
                       })()}
                       {issue.labels.length > 0 && (
-                        <div className="flex gap-2 mt-2 flex-wrap">
+                        <div className="flex gap-1.5 mt-2 flex-wrap">
                           {issue.labels.map((label) => (
-                            <span key={`issue-${issue.number}-label-${label}`} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs">
+                            <span key={`issue-${issue.number}-label-${label}`} className="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded text-xs">
                               {label}
                             </span>
                           ))}

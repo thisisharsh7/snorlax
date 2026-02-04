@@ -82,17 +82,17 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
   }
 
   return (
-    <div className="w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col h-screen">
+    <div className="w-64 bg-neutral-100 dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col h-screen">
       {/* Header with Add Repository Button */}
       <div className=" py-4 px-2 flex items-center justify-between flex-shrink-0">
         {/* Add Repository Button - Left Side */}
         <button
           type="button"
           onClick={onNewRepo}
-          className="flex items-center gap-2 bg-gray-900 dark:bg-gray-800 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-gray-800 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+          className="flex items-center gap-2 bg-neutral-800 dark:bg-neutral-700 text-white px-4 py-2 rounded-md font-medium text-base hover:bg-neutral-700 dark:hover:bg-neutral-600 transition-colors whitespace-nowrap"
           title="Add a new repository to index"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-4 h-4" />
           <span>Add Repository</span>
         </button>
 
@@ -102,13 +102,13 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
           <button
             type="button"
             onClick={onToggleDarkMode}
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-850 rounded-lg transition-colors"
             title="Toggle dark mode"
           >
             {isDark ? (
-              <Sun className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+              <Sun className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
             ) : (
-              <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+              <Moon className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
             )}
           </button>
 
@@ -116,10 +116,10 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
           <button
             type="button"
             onClick={onSettingsClick}
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-850 rounded-lg transition-colors"
             title="Settings - Configure API Keys"
           >
-            <Settings className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+            <Settings className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
           </button>
         </div>
       </div>
@@ -149,10 +149,10 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
                 <button
                   type="button"
                   onClick={() => onSelectRepo(repo.project_id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2.5 ${
+                  className={`w-full text-left px-3 py-2.5 rounded-md transition-all flex items-center gap-2.5 ${
                     selectedProjectId === repo.project_id
-                      ? 'bg-gray-200 dark:bg-gray-800'
-                      : 'hover:bg-gray-150 dark:hover:bg-gray-850'
+                      ? 'bg-neutral-150 dark:bg-neutral-850 text-neutral-900 dark:text-neutral-100'
+                      : 'hover:bg-neutral-150/50 dark:hover:bg-neutral-850/50'
                   } cursor-pointer`}
                 >
                   {/* Icon - Changes on hover for indexed/failed repos */}
@@ -162,7 +162,7 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
                         e.stopPropagation()
                         onReindex(repo.project_id)
                       }}
-                      className="p-0.5 hover:bg-gray-300 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0 cursor-pointer"
+                      className="p-0.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors flex-shrink-0 cursor-pointer"
                       title={repo.status === 'failed' ? 'Retry indexing' : 'Re-index code'}
                       role="button"
                       tabIndex={0}
@@ -174,10 +174,10 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
                         }
                       }}
                     >
-                      <RefreshCw className={`w-4 h-4 ${repo.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`} />
+                      <RefreshCw className={`w-4 h-4 ${repo.status === 'failed' ? 'text-accent-red-500 dark:text-accent-red-400' : 'text-neutral-600 dark:text-neutral-400'}`} />
                     </div>
                   ) : (
-                    <Github className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-gray-300" />
+                    <Github className="w-4 h-4 flex-shrink-0 text-neutral-600 dark:text-neutral-400" />
                   )}
 
                   <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
@@ -209,18 +209,20 @@ export default function RepoSidebar({ selectedProjectId, onSelectRepo, onNewRepo
 
                 {/* Delete button - only on hover */}
                 {hoveredId === repo.project_id && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setRepoToDelete(repo)
-                      setDeleteModalOpen(true)
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-white dark:bg-gray-800 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 transition-colors"
-                    title="Delete repository"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-                  </button>
+                  <div className="group/delete absolute right-2 top-1/2 -translate-y-1/2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setRepoToDelete(repo)
+                        setDeleteModalOpen(true)
+                      }}
+                      className="p-1.5 bg-white dark:bg-neutral-800 rounded-md hover:bg-accent-red-50 dark:hover:bg-accent-red-900/20 border border-neutral-200 dark:border-neutral-700 hover:border-accent-red-300 dark:hover:border-accent-red-700 transition-colors"
+                      title="Delete repository"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400 group-hover/delete:text-accent-red-600 dark:group-hover/delete:text-accent-red-400 transition-colors" />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

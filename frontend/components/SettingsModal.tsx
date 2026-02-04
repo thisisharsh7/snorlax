@@ -12,14 +12,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-  const [testingToken, setTestingToken] = useState(false)
-  const [tokenTestResult, setTokenTestResult] = useState<{ valid: boolean, message: string } | null>(null)
+  const [validationMessage, setValidationMessage] = useState<string | null>(null)
 
   // Load existing keys on mount
   useEffect(() => {
     if (isOpen) {
       loadSettings()
+      setValidationMessage(null)
     }
   }, [isOpen])
 
@@ -37,51 +36,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   }
 
-  async function testGitHubToken() {
-    // Don't test masked tokens
-    if (!githubToken || githubToken.startsWith('••')) {
-      setTokenTestResult({
-        valid: false,
-        message: '❌ Cannot test a masked token. Please enter a new token to test.'
-      })
-      return
-    }
-
-    setTestingToken(true)
-    setTokenTestResult(null)
-
-    try {
-      const res = await fetch(API_ENDPOINTS.validateToken(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: githubToken })
-      })
-      const data = await res.json()
-
-      if (data.valid) {
-        setTokenTestResult({
-          valid: true,
-          message: `✅ Token valid! Username: ${data.username}, Rate limit: ${data.rate_limit}/hour`
-        })
-      } else {
-        setTokenTestResult({
-          valid: false,
-          message: `❌ ${data.error || 'Token validation failed'}`
-        })
-      }
-    } catch (e: any) {
-      setTokenTestResult({
-        valid: false,
-        message: `❌ Test failed: ${e.message || 'Network error'}`
-      })
-    } finally {
-      setTestingToken(false)
-    }
-  }
-
   async function handleSave() {
     setSaving(true)
-    setMessage(null)
+    setValidationMessage(null)
 
     try {
       // Helper to determine what to send for each key
@@ -108,12 +65,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         throw new Error(data.detail || 'Failed to save settings')
       }
 
-      setMessage({ type: 'success', text: 'Settings saved successfully!' })
+      // Show brief success message, then close
+      setValidationMessage('Saved')
       setTimeout(() => {
         onClose()
-      }, 1500)
+      }, 1000)
     } catch (e: any) {
-      setMessage({ type: 'error', text: e.message })
+      setValidationMessage(e.message)
     } finally {
       setSaving(false)
     }
@@ -123,141 +81,107 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-2xl max-w-xl w-full p-5">
-        <div className="flex justify-between items-center mb-3">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              Settings
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400 text-xs mt-0.5">
-              Configure API keys for AI-powered triage features.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg"
-          >
-            ×
-          </button>
+      <div className="bg-white dark:bg-neutral-900 rounded-lg shadow-xl max-w-lg w-full p-8 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
+            Settings
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Configure API access for triage features.
+          </p>
         </div>
 
-        <div className="space-y-3">
-          {/* Anthropic API Key */}
+        <div className="space-y-6">
+          {/* Anthropic API Key - PRIMARY */}
           <div>
-            <div className="flex items-center gap-1 mb-1">
-              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                Anthropic API Key <span className="font-normal text-gray-500">(Optional)</span>
-              </label>
+            <label className="block text-base font-medium text-neutral-900 dark:text-neutral-100 mb-1.5">
+              Anthropic API Key
+            </label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+              Required for issue analysis. Get your key from{' '}
               <a
                 href="https://console.anthropic.com/settings/keys"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                title="Get your Anthropic API key"
+                className="text-neutral-600 dark:text-neutral-400 underline hover:text-neutral-900 dark:hover:text-neutral-200"
               >
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
+                console.anthropic.com
               </a>
-            </div>
+            </p>
             <input
               type="password"
               value={anthropicKey}
               onChange={(e) => setAnthropicKey(e.target.value)}
               placeholder="sk-ant-..."
-              className="w-full px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
+              className="w-full px-3 py-1.5 border border-neutral-300 dark:border-neutral-700 rounded-md text-base focus:outline-none focus:ring-1 focus:ring-accent-blue-400 focus:border-accent-blue-400 transition-shadow bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 font-mono"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Required for AI-powered issue triage and categorization. Claude Sonnet 4.5 • 200K context
-            </p>
           </div>
 
-          {/* GitHub Token */}
+          {/* GitHub Token - OPTIONAL/SECONDARY */}
           <div>
-            <div className="flex items-center gap-1 mb-1">
-              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                GitHub Personal Access Token <span className="font-normal text-gray-500">(Optional)</span>
-              </label>
+            <label className="block text-sm font-normal text-neutral-600 dark:text-neutral-400 mb-1.5">
+              GitHub Personal Access Token <span className="text-neutral-500">(optional)</span>
+            </label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+              Increases rate limits for syncing. Create a token at{' '}
               <a
                 href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                title="Create a personal access token"
+                className="text-neutral-600 dark:text-neutral-400 underline hover:text-neutral-900 dark:hover:text-neutral-200"
               >
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </a>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="github_pat_..."
-                className="flex-1 px-2.5 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-xs"
-              />
-              <button
-                type="button"
-                onClick={testGitHubToken}
-                disabled={testingToken || !githubToken || githubToken.startsWith('••')}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-              >
-                {testingToken ? 'Testing...' : 'Test Token'}
-              </button>
-            </div>
-            {tokenTestResult && (
-              <div className={`mt-2 px-3 py-2 rounded-md text-xs ${
-                tokenTestResult.valid
-                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-              }`}>
-                {tokenTestResult.message}
-              </div>
-            )}
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              For syncing issues and PRs. Increases rate limit from 60 to 5,000 requests/hour.{' '}
-              <a
-                href="https://github.com/settings/personal-access-tokens/new"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                Create token
+                github.com/settings
               </a>
             </p>
+            <input
+              type="password"
+              value={githubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder="github_pat_..."
+              className="w-full px-3 py-1.5 border border-neutral-300 dark:border-neutral-700 rounded-md text-base focus:outline-none focus:ring-1 focus:ring-accent-blue-400 focus:border-accent-blue-400 transition-shadow bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 font-mono"
+            />
           </div>
 
           {/* Save Button */}
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full bg-gray-900 dark:bg-gray-700 text-white py-2 px-4 rounded-md font-medium text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
+            className={`w-full py-2 px-4 rounded-md font-medium text-base transition-colors ${
+              saving
+                ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-500 cursor-not-allowed'
+                : 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200'
+            }`}
           >
-            {saving ? 'Saving...' : 'Save Settings'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
 
-          {/* Message */}
-          {message && (
-            <div className={`p-2 rounded-md border ${
-              message.type === 'success'
-                ? 'bg-green-50 text-green-600 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800'
-                : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
-            }`}>
-              <p className="text-xs font-medium">{message.text}</p>
+          {/* Validation Message */}
+          {validationMessage && (
+            <div className="text-center">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                {validationMessage}
+              </p>
             </div>
           )}
         </div>
 
         {/* Security Note */}
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <div className="mt-8 pt-6 border-t border-neutral-200 dark:border-neutral-800">
+          <div className="flex items-start gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
             </svg>
             <p>
-              Keys are encrypted and stored securely. Never exposed to the frontend.
+              Keys are encrypted and stored securely on your server.
             </p>
           </div>
         </div>

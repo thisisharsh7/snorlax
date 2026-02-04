@@ -490,7 +490,7 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Configuration Warning Banner */}
         {showBanner && (!hasAIKey || !hasGithubToken) && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2">
+          <div className="bg-accent-amber-50 dark:bg-accent-amber-900/20 border-b border-accent-amber-200 dark:border-accent-amber-800 px-4 py-2">
             <div className="flex items-center gap-2">
               <span className="text-yellow-600 dark:text-yellow-400 text-base">⚠</span>
               <div className="flex-1">
@@ -529,9 +529,9 @@ export default function Dashboard() {
         <div className="flex-1 flex flex-col min-h-0">
           {/* Rate Limit Banner - Background sync moved to sidebar */}
           {rateLimitInfo && (
-            <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <div className="bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-6 py-4">
               <div className="flex justify-end items-center gap-2">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-amber-50 dark:bg-accent-amber-900/20 border border-accent-amber-200 dark:border-accent-amber-800 rounded-lg">
                   <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-tight">
@@ -614,7 +614,7 @@ export default function Dashboard() {
 
             // Priority 3: Failed state
             return (
-              <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+              <div className="flex-1 flex items-center justify-center bg-neutral-50 dark:bg-neutral-900">
                 <div className="text-center max-w-2xl px-4">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                     Repository Not Ready
@@ -654,10 +654,10 @@ export default function Dashboard() {
           })()}
         </div>
       ) : (
-        <div className="flex-1 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-          <div className="text-center text-gray-500 dark:text-gray-400">
-            <p className="text-6xl mb-4">Select a repository</p>
-            <p className="text-xl font-semibold mb-2">Choose a repository</p>
+        <div className="flex-1 bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center">
+          <div className="text-center text-neutral-400 dark:text-neutral-500">
+            <p className="text-4xl mb-4">Select a repository</p>
+            <p className="text-lg font-medium mb-2">Choose a repository</p>
             <p className="text-sm">Select a repository from the sidebar to get started</p>
           </div>
         </div>

@@ -483,18 +483,20 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center">
-      <div className="bg-white dark:bg-gray-900 w-[95%] h-[95%] rounded-xl shadow-2xl flex flex-col">
+      <div className="bg-white dark:bg-neutral-900 w-[95%] h-[95%] rounded-lg shadow-xl flex flex-col">
         {/* Header */}
-        <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center rounded-t-xl">
-          <h2 className="text-xl font-bold">Triage Mode</h2>
+        <div className="bg-neutral-100 dark:bg-neutral-800 px-6 py-4 flex justify-between items-center rounded-t-lg border-b border-neutral-200 dark:border-neutral-700">
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Triage</h2>
           <div className="flex items-center gap-4">
             {issues.length > 0 && (
-              <span className="text-sm text-gray-400">
-                Issue {currentIndex + 1} of {issues.length}
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                {currentIndex + 1} of {issues.length}
               </span>
             )}
-            <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">
-              ✕
+            <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         </div>
@@ -503,25 +505,27 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400">Loading issues...</p>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-300 dark:border-neutral-700 mx-auto mb-4"></div>
+              <p className="text-neutral-500 dark:text-neutral-400 text-sm">Loading issues…</p>
             </div>
           </div>
         ) : issues.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <PartyPopper className="w-16 h-16 mx-auto mb-4 text-green-500" />
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                All caught up!
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center">
+                <Check className="w-6 h-6 text-neutral-600 dark:text-neutral-400" />
+              </div>
+              <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100 mb-2">
+                All caught up
               </h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                No more issues to triage.
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6">
+                No issues to triage.
               </p>
               <button
                 onClick={onClose}
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                className="bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 px-6 py-2 rounded-md hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors text-sm font-medium"
               >
-                Back to Dashboard
+                Close
               </button>
             </div>
           </div>
@@ -530,35 +534,35 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
             {/* Two-column layout */}
             <div className="flex-1 flex overflow-hidden">
               {/* LEFT: Issue Details */}
-              <div className="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-6">
+              <div className="w-1/2 border-r border-neutral-200 dark:border-neutral-700 overflow-y-auto p-6">
                 <div className="mb-4">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white flex-1">
+                    <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 flex-1">
                       #{currentIssue.issue_number}: {currentIssue.title}
                     </h3>
                     <button
                       onClick={() => window.open(currentIssue.html_url, '_blank')}
-                      className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors flex-shrink-0"
+                      className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors flex-shrink-0"
                       title="Open on GitHub"
                     >
-                      <ExternalLink className="w-5 h-5" />
+                      <ExternalLink className="w-4 h-4" />
                     </button>
                   </div>
-                  <div className="flex gap-2 text-sm text-gray-500 dark:text-gray-400">
-                    <span>State: {currentIssue.state}</span>
-                    <span>•</span>
+                  <div className="flex gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+                    <span>{currentIssue.state}</span>
                     {currentIssue.author && (
                       <>
-                        <span className="text-blue-600 dark:text-blue-400 font-medium">by {currentIssue.author}</span>
                         <span>•</span>
+                        <span>by {currentIssue.author}</span>
                       </>
                     )}
-                    <span>Created: {new Date(currentIssue.created_at).toLocaleDateString()}</span>
+                    <span>•</span>
+                    <span>{new Date(currentIssue.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
 
                 {/* Issue body with truncation */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <div className="bg-neutral-50 dark:bg-neutral-850 rounded-lg p-4 border border-neutral-200 dark:border-neutral-700">
                   <div className="text-sm text-gray-700 dark:text-gray-300 break-words overflow-x-auto">
                     <ReactMarkdown
                       rehypePlugins={[
@@ -669,9 +673,9 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                   {currentIssue.body && currentIssue.body.length > 500 && (
                     <button
                       onClick={() => setIssueBodyExpanded(!issueBodyExpanded)}
-                      className="mt-2 text-blue-600 hover:text-blue-700 text-xs font-medium"
+                      className="mt-2 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 text-xs font-medium"
                     >
-                      {issueBodyExpanded ? 'Show Less' : 'Show More'}
+                      {issueBodyExpanded ? 'Show less' : 'Show more'}
                     </button>
                   )}
                 </div>
@@ -682,65 +686,39 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                 {loadingAnalysis ? (
                   /* Loading state while checking for analysis */
                   <div className="flex flex-col items-center justify-center h-full">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-300 dark:border-gray-700 border-t-blue-600 dark:border-t-blue-400 mb-4"></div>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Checking for existing analysis...</p>
+                    <div className="animate-spin rounded-full h-12 w-12 border-2 border-neutral-200 dark:border-neutral-700 border-t-neutral-500 mb-4"></div>
+                    <p className="text-neutral-500 dark:text-neutral-400 text-sm">Loading…</p>
                   </div>
                 ) : !analysis ? (
                   <div className="flex flex-col items-center justify-center h-full px-8">
                     <div className="text-center mb-8 max-w-md">
-                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 mb-4">
-                        <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                        </svg>
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3">
-                        Turn this issue into a clear next step
+                      <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100 mb-3">
+                        Analyze this issue
                       </h3>
-                      <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed mb-4">
-                        Get a clear recommendation and a response you can post.
+                      <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed mb-6">
+                        Searches similar issues, related code, and documentation to draft a response. Nothing is posted automatically.
                       </p>
-                      <div className="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
-                        <ul className="space-y-2.5 text-sm text-gray-700 dark:text-gray-300">
-                          <li className="flex items-start gap-2">
-                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                            <span>Drafts a response you can post as-is</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                            <span>Flags if this issue already exists</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                            <span>Explains whether action is required</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                            <span>Links relevant code, docs, or PRs</span>
-                          </li>
-                        </ul>
-                      </div>
                     </div>
                     <button
                       onClick={handleAnalyzeClick}
                       disabled={analyzing}
-                      className="bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 text-white px-8 py-4 rounded-lg font-semibold text-base disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className={`px-6 py-2.5 rounded-md font-medium text-base transition-colors ${
+                        analyzing
+                          ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                          : 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200'
+                      }`}
                     >
                       {analyzing ? (
-                        <span className="flex items-center gap-3">
-                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                          <span>Generating response...</span>
+                        <span className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-neutral-500 border-t-transparent"></div>
+                          <span>Analyzing…</span>
                         </span>
                       ) : (
-                        <span className="flex items-center gap-2">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          <span>Generate recommended response</span>
-                        </span>
+                        <span>Analyze issue</span>
                       )}
                     </button>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-                      Based on similar issues from this repository • Usually takes 2–5 seconds
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-3">
+                      Takes 5–10 seconds
                     </p>
                   </div>
                 ) : (
@@ -748,31 +726,23 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                     {/* Decision Card (New Format) or Category Badge (Old Format) */}
                     {analysis.decision ? (
                       // NEW FORMAT: Show enhanced decision card
-                      <div className={`${DECISION_CONFIG[analysis.decision]?.bgColor} ${DECISION_CONFIG[analysis.decision]?.borderColor} border-2 rounded-lg p-5`}>
+                      <div className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-5">
                         <div className="flex items-start gap-4">
-                          <div>{DECISION_CONFIG[analysis.decision]?.icon}</div>
+                          <div className="text-neutral-600 dark:text-neutral-400">
+                            {DECISION_CONFIG[analysis.decision]?.icon}
+                          </div>
                           <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2 flex-wrap">
-                              <h3 className={`text-lg font-bold ${DECISION_CONFIG[analysis.decision]?.color}`}>
-                                {analysis.decision.replace(/_/g, ' ')}
-                              </h3>
-                              <span className="text-sm text-gray-600 dark:text-gray-400">
-                                {Math.round((analysis.confidence || 0) * 100)}% confident
-                              </span>
-                              {analysis.api_cost && (
-                                <span className="text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded font-mono">
-                                  ${analysis.api_cost.total_cost_usd.toFixed(4)}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-base font-semibold text-gray-900 dark:text-white mb-3">
+                            <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100 mb-2">
+                              {analysis.decision.replace(/_/g, ' ')}
+                            </h3>
+                            <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-3">
                               {analysis.primary_message}
                             </p>
                             {analysis.evidence_bullets && analysis.evidence_bullets.length > 0 && (
                               <ul className="space-y-1.5">
                                 {analysis.evidence_bullets.map((bullet, i) => (
-                                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                                    <span className="text-blue-600 dark:text-blue-400 mt-0.5">•</span>
+                                  <li key={i} className="flex items-start gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                    <span className="mt-1.5 w-1 h-1 rounded-full bg-neutral-400 flex-shrink-0"></span>
                                     <span>{bullet}</span>
                                   </li>
                                 ))}
@@ -783,69 +753,49 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                       </div>
                     ) : (
                       // OLD FORMAT: Show category badge (backwards compatibility)
-                      <div>
-                        <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Analysis Results</h3>
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <CategoryBadge category={analysis.primary_category} />
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {Math.round((analysis.confidence || 0) * 100)}% confident
-                          </span>
-                          {analysis.api_cost && (
-                            <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-mono">
-                              Cost: ${analysis.api_cost.total_cost_usd.toFixed(4)}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{analysis.reasoning}</p>
+                      <div className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-5">
+                        <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100 mb-2">
+                          {analysis.primary_category.replace(/_/g, ' ')}
+                        </h3>
+                        <p className="text-sm text-neutral-700 dark:text-neutral-300">{analysis.reasoning}</p>
                       </div>
                     )}
 
                     {/* Related Links (New Format) */}
                     {analysis.related_links && analysis.related_links.length > 0 && (
-                      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <h4 className="font-semibold text-sm mb-3 text-gray-900 dark:text-white">Related Resources</h4>
-                        <div className="space-y-2">
-                          {analysis.related_links.map((link, i) => {
-                            const sourceIcons: Record<string, React.ReactNode> = {
-                              stackoverflow: <Search className="w-4 h-4" />,
-                              github: <Github className="w-4 h-4" />,
-                              docs: <BookOpen className="w-4 h-4" />,
-                              internal: <Link className="w-4 h-4" />
-                            }
-                            return (
-                              <a
-                                key={i}
-                                href={link.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                              >
-                                <span className="flex-shrink-0">{sourceIcons[link.source] || <Link className="w-4 h-4" />}</span>
-                                <span>{link.text}</span>
-                              </a>
-                            )
-                          })}
+                      <div className="border-t border-neutral-200 dark:border-neutral-700 pt-4">
+                        <h4 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Related</h4>
+                        <div className="space-y-1.5">
+                          {analysis.related_links.map((link, i) => (
+                            <a
+                              key={i}
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200"
+                            >
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                              <span>{link.text}</span>
+                            </a>
+                          ))}
                         </div>
                       </div>
                     )}
 
                     {/* Related Info (compact) */}
                     {(analysis.duplicate_of || analysis.related_prs?.length > 0) && (
-                      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <h4 className="font-semibold text-sm mb-2 text-gray-900 dark:text-white">Related</h4>
+                      <div className="border-t border-neutral-200 dark:border-neutral-700 pt-4">
+                        <h4 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">References</h4>
                         {analysis.duplicate_of && (
-                          <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-                            <span className="font-medium">Duplicate of:</span>{' '}
-                            <span className="text-blue-600 dark:text-blue-400">#{analysis.duplicate_of}</span>
+                          <div className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
+                            Duplicate of #{analysis.duplicate_of}
                           </div>
                         )}
                         {analysis.related_prs?.length > 0 && (
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            <span className="font-medium">Related PRs:</span>{' '}
-                            {analysis.related_prs.map((pr, i) => (
+                          <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                            Related PRs: {analysis.related_prs.map((pr, i) => (
                               <span key={`pr-${pr}`}>
-                                <span className="text-blue-600 dark:text-blue-400">#{pr}</span>
-                                {i < analysis.related_prs.length - 1 && ', '}
+                                #{pr}{i < analysis.related_prs.length - 1 && ', '}
                               </span>
                             ))}
                           </div>
@@ -856,39 +806,42 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
                     {/* Suggested Responses */}
                     {analysis.suggested_responses?.length > 0 && (
                       <div>
-                        <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Suggested Responses</h4>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Draft response</h4>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400">Review before posting</span>
+                        </div>
                         <div className="space-y-3">
                           {analysis.suggested_responses.map((response, index) => (
-                            <div key={`response-${analysis.issue_number}-${index}-${response.type}`} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                              <div className="flex justify-between items-start mb-2">
-                                <span className="font-medium text-sm text-gray-900 dark:text-white">{response.title}</span>
+                            <div key={`response-${analysis.issue_number}-${index}-${response.type}`} className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-4">
+                              <div className="flex justify-between items-start mb-3">
+                                <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{response.title}</span>
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => copyResponse(index)}
-                                    className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                                    className="text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 font-medium"
                                   >
-                                    {copiedResponse === index ? (
-                                      <>✓ Copied</>
-                                    ) : (
-                                      <><kbd className="kbd">{index + 1}</kbd> Copy</>
-                                    )}
+                                    {copiedResponse === index ? 'Copied' : 'Copy'}
                                   </button>
                                   <button
                                     onClick={() => postResponseToGitHub(index)}
                                     disabled={postingResponse === index}
-                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                                      postingResponse === index || postedResponse === index
+                                        ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                        : 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200'
+                                    }`}
                                   >
                                     {postingResponse === index ? (
-                                      'Posting...'
+                                      'Posting…'
                                     ) : postedResponse === index ? (
-                                      '✓ Posted!'
+                                      'Posted'
                                     ) : (
-                                      'Post to GitHub'
+                                      'Post'
                                     )}
                                   </button>
                                 </div>
                               </div>
-                              <div className="text-xs text-gray-600 dark:text-gray-400 break-words overflow-x-auto">
+                              <div className="text-sm text-neutral-700 dark:text-neutral-300 break-words overflow-x-auto">
                                 <ReactMarkdown
                                   rehypePlugins={[
                                     rehypeRaw,
@@ -1002,24 +955,24 @@ export default function TriageModeModal({ projectId, isOpen, onClose, initialIss
             </div>
 
             {/* Footer: Navigation & Shortcuts */}
-            <div className="bg-gray-50 dark:bg-gray-800 px-6 py-3 flex justify-between items-center rounded-b-xl border-t border-gray-200 dark:border-gray-700">
-              <div className="flex gap-3 text-xs text-gray-600 dark:text-gray-400">
-                <span><kbd className="kbd">Esc</kbd> Exit</span>
+            <div className="bg-neutral-50 dark:bg-neutral-800 px-6 py-3 flex justify-between items-center rounded-b-lg border-t border-neutral-200 dark:border-neutral-700">
+              <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                <span><kbd className="kbd">Esc</kbd> Close</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={previousIssue}
                   disabled={currentIndex === 0}
-                  className="px-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                  className="px-3 py-1.5 bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded text-xs font-medium disabled:opacity-30 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:cursor-not-allowed text-neutral-900 dark:text-neutral-100"
                 >
-                  ← Previous
+                  Previous
                 </button>
                 <button
                   onClick={nextIssue}
                   disabled={currentIndex === issues.length - 1}
-                  className="px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white rounded text-xs font-medium disabled:opacity-50 hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
+                  className="px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded text-xs font-medium disabled:opacity-30 hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors disabled:cursor-not-allowed"
                 >
-                  Next →
+                  Next
                 </button>
               </div>
             </div>
